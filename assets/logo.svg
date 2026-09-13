@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- drawn on a 16 unit grid so every edge lands on a whole pixel in a tab strip -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="512" height="512">
+  <path d="M16 8C16 15.27 15.27 16 8 16S0 15.27 0 8S0.73 0 8 0S16 0.73 16 8Z" fill="#0e0e0e"/>
+  <rect x="4" y="3" width="2" height="2" rx="0.4" fill="#ffb000"/>
+  <path d="M2 5H8.5L12 9L14 9.6V12H2Z" fill="#f2f2f2"/>
+  <path d="M6 6H8.3L10.9 9H6Z" fill="#0e0e0e"/>
+  <circle cx="4.5" cy="12" r="1.9" fill="#f2f2f2" stroke="#0e0e0e" stroke-width="0.7"/>
+  <circle cx="11.5" cy="12" r="1.9" fill="#f2f2f2" stroke="#0e0e0e" stroke-width="0.7"/>
+</svg>

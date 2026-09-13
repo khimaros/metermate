@@ -1,0 +1,2743 @@
+<!doctype html>
+<meta charset="utf-8">
+<!-- **without this a phone renders the page at desktop width** and hands the
+     person a pinch gesture for the rest of the session: every size below, and
+     every tap target, is then measured against a 980px page shrunk into 390. -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b0d10">
+<title>metermate</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<style>
+  /* the two the page writes and this file multiplies with: the shape of what was
+     encoded, as the encoder sent it rather than as a divided float (draw()), and
+     the height the page spends around the picture (fit()). both have a stand-in
+     for before the page's own javascript has run. */
+  :root { color-scheme: dark; -webkit-text-size-adjust: 100%;
+          --frame-w: 4; --frame-h: 3; --room: 12rem; }
+  body { margin: 0; background: #0b0d10; color: #c9d1d9;
+         font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  /* **the bar the tabs live in stays put.** the crops grid and the events list are
+     each longer than any window, and the bar that switches between them went off the
+     top with the rest of the page: reaching the events tab from a crop halfway down
+     meant scrolling to the top first, and losing where you were. `z-index` clears the
+     label picker, which is the only other thing that hangs over the cards, so a
+     picker opened under the bar is a picker the bar covers rather than the reverse --
+     the tabs are reachable from either tab and the picker is not. */
+  header { position: sticky; top: 0; z-index: 6;
+           background: #0b0d10; border-bottom: 1px solid #21262d;
+           display: flex; flex-wrap: wrap; gap: 1.5rem; row-gap: .4rem;
+           align-items: baseline; padding: .6rem 1rem; }
+  /* takes whatever width the header has left, so what follows it sits right. */
+  .fill { flex: 1 }
+  h1 { font-size: 13px; font-weight: 600; margin: 0; letter-spacing: .08em;
+       text-transform: uppercase; color: #e6edf3; }
+  #stats { color: #7d8590; }
+  /* **the largest frame of the encoded shape the window has room for.** the shape
+     is the encoded frame's because a browser contains an image whose shape differs
+     from its box while the overlay canvas covers the box, so a frame fitted to the
+     gate instead puts every box above the vehicle it belongs to.
+     the width is the whole window unless the height that needs is more than the
+     window has, and then the height is what is left after `--room`. `svh` because a
+     phone's url bar is not room the picture was given, with `vh` for whatever has
+     not heard of it. the floor is because the roi editor's toml, or a phone held
+     sideways, can leave next to nothing: a stream nobody can see answers nothing,
+     so that page scrolls rather than squeezing the picture to nothing. */
+  #stage { position: relative; margin: 1rem auto 0;
+           aspect-ratio: var(--frame-w) / var(--frame-h);
+           width: min(calc(100vw - 2rem),
+                      calc((100vh - var(--room)) * var(--frame-w) / var(--frame-h)));
+           width: min(calc(100vw - 2rem),
+                      calc((100svh - var(--room)) * var(--frame-w) / var(--frame-h)));
+           min-width: min(60vw, calc(40vh * var(--frame-w) / var(--frame-h))); }
+  img, video, canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  video { background: #000; object-fit: contain; }
+  /* `hidden` has to win over the `display: block` above, or both the img and
+     the video render and one covers the other. */
+  [hidden] { display: none !important; }
+  img { background: #000; object-fit: contain; }
+  canvas { pointer-events: none; }
+  /* what a closed stream shows instead of the frame it stopped on. the whole
+     stage and opaque, because the picture behind it is the thing being
+     corrected; `place-content: center` so the two lines sit where the vehicle
+     would have been rather than in a corner nobody looks at. */
+  #stream-shut { position: absolute; inset: 0; z-index: 2; display: grid;
+                 place-content: center; gap: .25rem; text-align: center;
+                 background: #0b0d10; color: #7d8590; padding: 1rem; }
+  #stream-shut b { color: #e6edf3; font-weight: 600; letter-spacing: .08em;
+                   text-transform: uppercase; }
+  /* the top padding is the gap between the picture and the prose: the stage carries
+     no bottom margin so that `fit()` has one height to measure, not two. */
+  .legend { padding: .5rem 1rem 1rem; color: #7d8590; }
+  #roi-tools { padding: 0 1rem 1rem; display: flex; gap: .5rem; align-items: center;
+               flex-wrap: wrap; }
+  #roi-tools button { background: none; border: 1px solid #21262d; color: #c9d1d9;
+                      font: inherit; padding: .1rem .6rem; cursor: pointer;
+                      border-radius: 3px; }
+  #roi-toml { flex-basis: 100%; margin: .3rem 0 0; padding: .5rem; background: #0d1117;
+              border: 1px solid #21262d; border-radius: 4px; color: #e6edf3;
+              white-space: pre-wrap; word-break: break-all; }
+  label { margin-right: 1rem; cursor: pointer; user-select: none; }
+
+  /* the harvest viewer. crops are wildly different shapes, so each cell is a
+     fixed square and the image is contained inside it: a grid that reflows on
+     every load is unreadable when it refreshes every few seconds. */
+  #crops, #verdicts { display: none; padding: 1rem; }
+  #crops.on, #verdicts.on { display: block; }
+  .crop-grid { display: grid; gap: .5rem;
+          grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  /* **not `overflow: hidden`.** the card is the picker's containing box, and a
+     picker is taller than the card it opens from -- so clipping the card to its
+     rounded corners clips the bottom of every label list too, which reads as a
+     picker that works until the label you wanted. the corners are kept off the
+     picture itself instead. */
+  figure { margin: 0; background: #0d1117; border: 1px solid #21262d;
+           border-radius: 4px; }
+  figure img, figure video { border-radius: 3px 3px 0 0; }
+  figure img { position: static; width: 100%; height: 150px; object-fit: contain;
+               background: #010409; cursor: zoom-in; }
+  figcaption { padding: .3rem .4rem; color: #7d8590; font-size: 11px;
+               display: flex; flex-wrap: wrap; justify-content: space-between;
+               gap: .4rem; }
+  figcaption b { color: #e6edf3; font-weight: 600; }
+  figcaption button { background: none; border: 1px solid #21262d; color: #7d8590;
+                      font: inherit; font-size: 10px; line-height: 1.4;
+                      padding: 0 .3rem; border-radius: 3px; cursor: pointer; }
+  figcaption button:hover { color: #e6edf3; }
+  /* the answers, under the caption. deliberately quiet: the picture is what
+     the page is for, and a row of bright buttons on every tile would compete
+     with the one crop worth looking at. */
+  .labels { display: flex; gap: .25rem; align-items: center;
+            padding: 0 .4rem .3rem; font-size: 11px; }
+  .labels button { background: none; border: 1px solid #21262d; color: #7d8590;
+                   font: inherit; font-size: 10px; padding: 0 .3rem;
+                   border-radius: 3px; cursor: pointer; }
+  .labels button:hover { color: #e6edf3; border-color: #58a6ff; }
+  .labels .truth { color: #7d8590; }
+  .labels.decided .truth { color: #e6edf3; font-weight: 600; }
+  .labels button { margin-left: auto; }
+  /* the picker, over the tiles below it: a grid is a wall of crops and a list
+     that pushed them around would move the one being labelled. */
+  .picker { position: absolute; z-index: 5; display: flex; flex-direction: column;
+            background: #0d1117; border: 1px solid #30363d; border-radius: 4px;
+            margin-top: 1.2rem; min-width: 11rem; }
+  .picker input { background: #010409; border: none; border-bottom: 1px solid #21262d;
+                  color: #e6edf3; font: inherit; font-size: 12px; padding: .3rem .4rem; }
+  .picker input.refused { color: #f85149; }
+  /* the list is bounded by `LABELS_OFFERED` in the script, so its height is known
+     and the only rail it needs is the window's: a fixed height cut the last offered
+     label off the bottom and scrolled with no hint there was more, which is the one
+     label the eye was on. the 12rem is the room the picker does not have -- the
+     header it opens under, the field above the list, and where it hangs. */
+  .options { max-height: calc(100vh - 12rem); overflow-y: auto; }
+  .option { padding: .2rem .4rem; cursor: pointer; white-space: nowrap; }
+  .option.on { background: #21262d; }
+  .option.new { color: #7d8590; font-style: italic; }
+  figure { position: relative; }
+  /* **the one crop in two hundred worth looking at.** a page of the harvest is
+     two hundred cars and the subject is well under a percent of it, so the
+     difference has to survive being scrolled past at speed: the same green a
+     `subject` clip carries in the events grid, because it is the same claim
+     about the same vehicle -- that it alerted, not merely that one frame of it
+     was given a name. */
+  figure.recognised { border-color: #3fb950; box-shadow: inset 0 0 0 1px #3fb950; }
+  figcaption b.verdict { text-transform: uppercase; }
+  figure.recognised figcaption b.verdict { color: #3fb950; }
+  .tabs button { background: none; border: 1px solid #21262d; color: #7d8590;
+                 font: inherit; padding: .1rem .6rem; cursor: pointer;
+                 border-radius: 3px; }
+  .tabs button.on { color: #e6edf3; border-color: #58a6ff; }
+  /* click to enlarge, and **enlarge means the window**: a crop is a photograph of a
+     number plate and the plate is the reason it was kept, so a two-hundred-pixel crop
+     shown at two hundred pixels on a fourteen-hundred-pixel screen answers a question
+     nobody asked. the shape is still the media's own. */
+  #zoom { display: none; position: fixed; inset: 0; background: #010409e0;
+          z-index: 10; cursor: zoom-out; }
+  #zoom.on { display: grid; place-items: center; }
+  /* a crop is the box the wheel works on, and the arithmetic starts at the box's top
+     left, which is the window's for a box that is the window. `pixelated` because a
+     crop blown up ten times is showing what the camera saw, and smoothing it would be
+     inventing pixels to look at. */
+  #zoom img { width: 100%; height: 100%; object-fit: contain; transform-origin: 0 0;
+              image-rendering: pixelated; }
+  /* a clip is the full-resolution main stream, so filling the window is all it needs
+     and the window is all it is given -- but it keeps its own box rather than the
+     window's, so the player's controls sit under the picture and the dark around it
+     is still the backdrop that closes the overlay. */
+  #zoom video { position: static; width: auto; height: auto;
+                max-width: 100vw; max-height: 100vh; cursor: auto; }
+
+  /* the events viewer. wider cells than the crops grid: a clip is a whole
+     scene where a crop is one vehicle. */
+  #events { display: none; padding: 1rem; }
+  #events.on { display: block; }
+  #clips { display: grid; gap: .5rem;
+           grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+  #clips video, #clips img { position: static; width: 100%; height: 160px;
+                             object-fit: contain; background: #010409; cursor: zoom-in; }
+  #zoom-busy { position: absolute; color: #7d8590; }
+  #zoom-jump { position: absolute; bottom: 1.5rem; padding: .5rem .9rem;
+    background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
+    border-radius: 6px; font: inherit; cursor: pointer; }
+  #zoom-jump:hover { background: #30363d; }
+  /* marking a passage, over the player it is being marked from. top rather
+     than bottom: the video's own controls own the bottom edge, and a row of
+     buttons next to the scrubber is a row of buttons pressed by accident. */
+  #mark { position: absolute; top: 1rem; display: flex; gap: .4rem;
+          align-items: center; background: #0d1117cc; padding: .35rem .5rem;
+          border: 1px solid #21262d; border-radius: 4px; font-size: 12px; }
+  #mark button { background: none; border: 1px solid #21262d; color: #c9d1d9;
+                 font: inherit; padding: .1rem .6rem; border-radius: 3px;
+                 cursor: pointer; }
+  #mark button:hover:enabled { border-color: #58a6ff; }
+  #mark button:disabled { color: #484f58; cursor: default; }
+  #mark-window { color: #7d8590; }
+  /* what is marked on a clip, on the card it was marked from. */
+  .marks { display: flex; flex-wrap: wrap; gap: .25rem; padding: 0 .4rem .3rem; }
+  .mark { display: inline-flex; align-items: center; gap: .2rem; font-size: 10px;
+          color: #c9d1d9; background: #161b22; border: 1px solid #21262d;
+          border-radius: 3px; padding: 0 .2rem 0 .35rem; }
+  .mark button { background: none; border: none; color: #7d8590; font: inherit;
+                 cursor: pointer; padding: 0 .1rem; }
+  .mark button:hover { color: #f85149; }
+  .grid-bar { display: flex; gap: 1rem; align-items: baseline; flex-wrap: wrap;
+                padding-bottom: .6rem; color: #7d8590; }
+  .grid-bar select { background: #0d1117; border: 1px solid #21262d;
+                       color: #c9d1d9; font: inherit; border-radius: 3px; }
+  /* the arrivals that are waiting because the page is scrolled away. lit up, since
+     pressing it is the only way to see them. */
+  .grid-bar button { background: #161b22; border: 1px solid #58a6ff; color: #e6edf3;
+                     font: inherit; border-radius: 3px; padding: .1rem .6rem;
+                     cursor: pointer; }
+  .worth { font-weight: 600; }
+
+  /* ---- a touch pointer ---------------------------------------------------
+
+     the same page at 13px inside a 16px button is legible and unusable: a thumb
+     is not a mouse, and what it is aiming at is one crop among two hundred. so
+     the type goes up, every control grows a thumb, and the tabs become a row of
+     their own. the desktop stays as dense as it was.
+
+     keyed on the pointer rather than on a width, because a tablet in landscape
+     has a desktop's pixels and a phone held sideways does not. */
+  @media (pointer: coarse) {
+    body { font-size: 15px; }
+    header { gap: .4rem .9rem; padding: .5rem .7rem; }
+    /* one row, equal widths: the tabs are the whole navigation and a fifth of a
+       390px window is not a target. */
+    header .tabs { order: 3; flex: 1 1 100%; gap: .3rem; }
+    header .tabs button { flex: 1; padding: .55rem .2rem; }
+    .fill { display: none; }
+    #live-controls { flex: 1 1 100%; }
+    #roi-tools { gap: .3rem .4rem; }
+    #roi-tools button, #mark button, .grid-bar select, .grid-bar button,
+    #zoom-jump { padding: .5rem .8rem; }
+    /* the label control and the verdict chip are the two things on a tile worth
+       tapping, and both were sized for a mouse. */
+    figcaption, .labels { font-size: 13px; }
+    figcaption button, .labels button { padding: .35rem .55rem; font-size: 13px; }
+    .option { padding: .5rem .6rem; }
+    .picker { min-width: 14rem; }
+    /* below 16px a phone zooms the page to type into a field, and the picker is
+       then off screen. */
+    .picker input { font-size: 16px; }
+  }
+
+  /* a phone, in either orientation: the header and the legend have to share the
+     screen with the picture rather than sit below its fold. the picture needs no
+     rule of its own here -- it is fitted to whatever the two leave, and on a phone
+     held sideways it is the height that binds. */
+  @media (max-width: 640px), (max-height: 520px) {
+    #crops, #verdicts, #events { padding: .6rem; }
+    .legend { padding: .5rem .6rem .8rem; }
+    /* the marking bar sits over the player, which on a narrow window is most of
+       it: three buttons and the window they describe must not run off the end. */
+    #mark { max-width: 94vw; flex-wrap: wrap; }
+  }
+</style>
+
+<header>
+  <h1>metermate</h1>
+  <span class="tabs">
+    <button id="tab-live" class="on">live</button><!--
+ --><button id="tab-crops">crops</button><!--
+ --><button id="tab-verdicts">verdicts</button><!--
+ --><button id="tab-events" hidden>events</button><!--
+ --><button id="tab-roi">roi</button>
+  </span>
+  <span id="stats">waiting for frames</span>
+  <span class="fill"></span>
+  <!-- **only in the raw detector view.** these filter what is drawn, and the
+       gated pipeline has already filtered it: `[detector] classes` decides what
+       survives stage one, and `min_confidence` decides what is reported at all.
+       offering the same two controls over an already-filtered overlay invites
+       the reading that they change what the pipeline keeps, which they do not
+       -- they only hide boxes on the way to the canvas.
+       `--debug-detector` is the view where they mean something, because it
+       draws every coco class at every confidence deliberately. -->
+  <!-- **offered in both views, unlike the two above.** whether the boxes are drawn
+       is a question about the drawing, not about what the pipeline kept: the same
+       feed arrives either way, and sometimes the question is what the street looks
+       like. the dashes stay, because they answer a different question. -->
+  <label id="boxes-control" hidden><input type="checkbox" id="boxes" checked> boxes</label>
+  <span id="live-controls" hidden>
+    <label><input type="checkbox" id="vehicles-only"> hide non-vehicles</label>
+    <label>min conf <input type="range" id="conf" min="0" max="0.9" step="0.05" value="0.25"
+                           style="vertical-align:middle"><span id="confval">0.25</span></label>
+  </span>
+</header>
+
+<div id="live">
+  <div id="stage">
+    <!-- one of these is used, chosen by /config. both sit in the same place
+         under the overlay, so the boxes do not care which. -->
+    <img id="video-img" alt="camera" hidden>
+    <video id="video-mp4" muted autoplay playsinline hidden></video>
+    <canvas id="overlay"></canvas>
+    <!-- **over the picture, not beside it.** a stream closed by its own window
+         leaves the last frame it ever sent on screen, and a still street reads
+         exactly like a quiet one -- a note under it would be a caption on that
+         frame, still making the claim it makes. -->
+    <div id="stream-shut" hidden>
+      <b>stream closed</b>
+      <span id="stream-msg"></span>
+    </div>
+  </div>
+
+  <!-- one tab, two things to draw. they answer the same question about the
+       same street -- where to look, and how big a vehicle is where -- and both
+       want to be drawn against the live picture rather than guessed at. -->
+  <div id="roi-tools" hidden>
+    <span class="tabs">
+      <button id="draw-roi" class="on">region</button><!--
+   --><button id="draw-scale">perspective</button>
+    </span>
+    <button id="roi-undo">undo</button>
+    <button id="roi-clear">clear</button>
+    <button id="roi-copy">copy toml</button>
+    <span id="roi-count"></span>
+    <pre id="roi-toml"></pre>
+  </div>
+
+  <div class="legend" id="live-legend">
+    <b style="color:#2ee6d6">turquoise dashes</b> are where the gate saw motion.
+    boxes are vehicles the detector found: <b style="color:#3fb950">solid
+    green</b> is the one being harvested,<span id="legend-parked"> <b>dashed</b>
+    is parked long enough to count as scenery,</span> and faint is seen but not
+    moving. <code>m=</code> is the fraction of that vehicle's own pixels that
+    changed, which is what the harvest decides on.
+  </div>
+</div>
+
+<div id="crops">
+  <div class="grid-bar">
+    <span id="crops-stats">looking for crops</span>
+    <button id="crops-waiting" hidden></button>
+  </div>
+  <div id="grid" class="crop-grid"></div>
+  <div class="legend">
+    the harvest: full-resolution crops saved for training. oldest are deleted
+    first to stay inside the disk budget, so this is the newest of them.
+    a <b style="color:#3fb950">green</b> border is a crop of a vehicle that
+    alerted: stage two named it and the tracker confirmed it.
+  </div>
+</div>
+
+<div id="verdicts">
+  <div class="grid-bar">
+    <span id="verdicts-stats">looking for verdicts</span>
+    <button id="verdicts-waiting" hidden></button>
+  </div>
+  <div id="verdicts-grid" class="crop-grid"></div>
+  <div class="legend">
+    every crop stage two put a name to, newest first. click one to see it whole,
+    and to open the recording it was taken during. three things bound what can
+    appear here:
+    <ul>
+      <li><b>a verdict is about one frame.</b> it is what the classifier made of
+      those exact pixels at the configured margin, before the tracker has had
+      its say -- so a crop can appear here without an alert ever being
+      published, which needs the same subject on <code>confirm_m</code> of the
+      last <code>confirm_n</code> looks. the ones whose vehicle did alert are
+      <b style="color:#3fb950">green</b>, including crops saved before the
+      alert.</li>
+      <li><b>only moving vehicles are classified at all.</b> stage two runs on
+      what the harvest acts on, so a subject parked at the kerb is judged on its
+      approach and its departure and not while it sits there.</li>
+      <li><b>this starts when the verdict started being recorded.</b> crops
+      harvested before that carry no name whatever they were.</li>
+    </ul>
+  </div>
+</div>
+
+<div id="events">
+  <div class="grid-bar">
+    <span id="events-stats">looking for clips</span>
+    <button id="events-waiting" hidden></button>
+    <span class="fill"></span>
+    <label>show
+      <select id="worth-filter">
+        <option value="motion">everything kept</option>
+        <option value="detection">detections and subjects</option>
+        <option value="subject">subjects only</option>
+      </select>
+    </label>
+  </div>
+  <div id="clips"></div>
+  <div class="legend">
+    clips of the moments something happened, kept in addition to the fixed
+    windows <code>make record</code> writes. two things about them are worth
+    knowing:
+    <ul>
+      <li><b>a clip starts before its trigger.</b> motion fires once the vehicle
+      is already in frame, so the first few seconds are held in a ring and
+      written out ahead of it. that approach is the part a recall question
+      needs.</li>
+      <li><b>what a clip is named for is a floor, not a verdict.</b> the name
+      records what the pipeline established while it was open, and the pipeline
+      only looks when the gate fires. <b style="color:#8b949e">motion</b> means
+      nothing further was established, which is not the same as nothing further
+      being there.</li>
+    </ul>
+    the disk budget evicts by that name first and only then by age -- unlike the
+    harvest, where the oldest crop is the cheapest to lose. a clip holding a
+    recognised subject may be the only one there is.
+  </div>
+</div>
+
+<div id="zoom">
+  <img alt="crop">
+  <video controls playsinline hidden></video>
+  <!-- a clip is megabytes of full-resolution video over whatever the link is.
+       without this the overlay is a black rectangle while it arrives, which is
+       what a broken player looks like. -->
+  <span id="zoom-busy" hidden>fetching the clip...</span>
+  <!-- which recording was running when this crop was taken. absent when no clip
+       was open then, which on a street with gaps between events is common. -->
+  <button id="zoom-jump" hidden></button>
+  <!-- marking the passage while watching it: the player already knows the
+       seconds, so nothing has to be read off the screen and typed. -->
+  <span id="mark" hidden>
+    <button id="mark-in">in</button>
+    <button id="mark-out">out</button>
+    <button id="mark-select">select</button>
+    <span id="mark-window"></span>
+  </span>
+</div>
+
+<script>
+// coco classes a go-4 could plausibly land in. it is a three-wheeler and coco
+// has no class for it, so which one it picks is the open question.
+const VEHICLES = new Set(["car", "truck", "bus", "motorcycle", "bicycle"]);
+// mirrors `[harvest] must_have_moved`. the server sends the measured fraction
+// per box; this only decides how it is drawn, so the two drifting apart costs a
+// misleading colour rather than a wrong decision.
+const MOVED_THRESHOLD = 0.08;
+// the gate's motion regions. deliberately a hue no detection class uses.
+const MOTION_COLOR = "#2ee6d6";
+const COLORS = { car: "#3fb950", truck: "#d29922", bus: "#d29922",
+                 motorcycle: "#a371f7", bicycle: "#a371f7", person: "#58a6ff" };
+
+// the element the page's two answers about the picture are written on: the shape
+// of what was encoded, and the room the page leaves around it. both are needed by
+// the rule in #stage, and only the page knows either.
+const htmlEl = document.documentElement;
+const stage = document.getElementById("stage");
+const legend = document.getElementById("live-legend");
+const cv = document.getElementById("overlay");
+const ctx = cv.getContext("2d");
+const statsEl = document.getElementById("stats");
+const confEl = document.getElementById("conf");
+const boxesEl = document.getElementById("boxes");
+const boxesControl = document.getElementById("boxes-control");
+const confVal = document.getElementById("confval");
+const vehOnly = document.getElementById("vehicles-only");
+const liveControls = document.getElementById("live-controls");
+// whether the overlay is coming from `--debug-detector` rather than the gated
+// pipeline. set from the first message that arrives; see `draw`.
+let rawDetector = false;
+
+let frames = 0, last = performance.now(), fps = 0;
+// **counted separately from the overlay, because they are different numbers.**
+// the figure in the corner used to count overlay draws, which are driven by the
+// detections feed -- so it read a healthy 15/s while the video element was
+// showing one frame every ten seconds, and said nothing was wrong. what is on
+// screen is the thing worth reporting.
+let videoFrames = 0, videoFps = 0;
+
+confEl.oninput = () => { confVal.textContent = (+confEl.value).toFixed(2); };
+// the overlay is only repainted when a frame arrives, and a street with nothing on
+// it sends none: unchecking has to clear what is already on the canvas rather than
+// wait for a vehicle to come back and reveal the boxes were never there.
+boxesEl.onchange = () => {
+  if (!boxesEl.checked) ctx.clearRect(0, 0, cv.width, cv.height);
+};
+
+// where video comes from is a server-side choice, fetched rather than baked in.
+// the overlay does not care: it is drawn from the detections feed and rescaled
+// to whatever it is drawn over, so swapping the source changes nothing else.
+const imgEl = document.getElementById("video-img");
+const mp4El = document.getElementById("video-mp4");
+
+// **the picture needs a buffer, and the old code spent it.**
+//
+// fragments arrive unevenly -- measured at 66ms apart on average but with a 24ms
+// spread and occasional 200ms gaps. playing right at the live edge means any one
+// of those gaps starves the decoder, and playback freezes on its last frame
+// until the next fragment lands. that is the stutter: not a dropped connection,
+// just nothing left to show.
+//
+// the previous code made this certain rather than likely. it played at 1.08x
+// whenever more than 0.8s behind, so playback walked steadily toward the edge
+// and stayed there -- chasing low latency straight into a permanent starvation
+// loop. a monitor does not need to be a second fresher, so that is gone.
+//
+// instead: hold back a deliberate cushion, and only intervene when the gap is
+// far too large to be latency at all.
+// cushion to keep between playback and the edge, from `[preview]
+// target_buffer_ms`. it exists so a late fragment has something to play through
+// instead of stalling, and it is latency the viewer feels directly -- so it is
+// the operator's call, not a constant.
+let minBufferS = 0.25;
+let maxBufferS = 2.0;
+const DRIFT_SEEK_S = 10.0;     // past this it is a desync, not latency
+// closing a gap smaller than that by seeking would be a visible jump every few
+// seconds, so playback runs slightly fast instead until it has caught up. 10%
+// is inaudible on a silent stream and closes a two second gap in twenty.
+const CATCH_UP_RATE = 1.1;
+// "skip" or "speed", from `[preview] catch_up`.
+let catchUp = "skip";
+
+// **whether seeking is possible at all**, which on this stream it is not.
+//
+// an endless fragmented mp4 over plain http has no duration and no byte ranges,
+// so the element reports an empty seekable range: measured against the
+// deployment, `seekable` was [0, 0] while `buffered` was [13.67, 17.27].
+// assigning `currentTime` there clamps to zero and is then discarded --
+// playback carried on exactly where it had been.
+//
+// so a skip policy silently does nothing, and the drift correction that has
+// been in this file all along never once fired successfully, which is why
+// latency accumulated without bound. speeding up is the only mechanism that
+// works until the video arrives through media source extensions, where the
+// buffer is ours to seek.
+function canSeek() {
+  return mp4El.seekable.length > 0
+    && mp4El.seekable.end(mp4El.seekable.length - 1) > mp4El.currentTime;
+}
+const CATCH_UP_SLACK_S = 0.5;  // how far past the target before bothering
+// wait for exactly the cushion we mean to hold before starting: accumulating
+// more than that only means starting further behind.
+
+// a live stream can end under us: the server gives each viewer a bounded queue
+// and drops anyone who stops draining it, ffmpeg restarts when the camera
+// stalls, and wifi does what wifi does. the video element's response simply
+// ends and it freezes on its last frame forever, which looks exactly like the
+// pipeline having died when detection is in fact still running.
+//
+// so the stream is treated as something that *will* break and be reopened,
+// rather than something opened once.
+// how long playback must be frozen *and starved of data* before the stream is
+// declared dead. generous: a brief stall is normal and recovers on its own,
+// whereas a reconnect costs about a second of black, so a trigger-happy
+// watchdog manufactures exactly the glitch it is meant to repair.
+const STALL_S = 8;
+// never reconnect faster than this. reopening costs about a second of black
+// while the connection is re-established, so a reconnect that itself triggers a
+// reconnect is indistinguishable from the stream being broken -- it stutters
+// forever at exactly the retry period.
+let reconnectMinMs = 1000;
+let videoSrc = null;
+// the mjpeg equivalent, and it had no equivalent of any of the above.
+//
+// **a hidden `<img>` streaming mjpeg is still streaming.** `display: none` on
+// its container does not close the connection: the browser goes on pulling
+// frames, and the server goes on encoding a jpeg per gate frame -- on the main
+// loop, beside the detector -- for a picture nobody is looking at. the mp4 path
+// was taught to close itself and this one was not, so on the two configurations
+// that serve jpeg, every tab cost what the live tab costs (r8.3).
+let imgSrc = null;
+let lastOpen = 0;
+let waitingToStart = false;
+
+// ---- media source extensions -------------------------------------------
+
+// **the video is fed to the element rather than fetched by it.**
+//
+// a plain `<video src=...>` pointed at an endless fragmented mp4 works, in that
+// pictures appear, and is unfixable in every way that matters: the resource has
+// no duration and no byte ranges, so the element reports nothing seekable.
+// measured against the deployment, `seekable` was [0, 0] while `buffered` was
+// [13.67, 17.27] -- assigning `currentTime` clamped to zero and was discarded.
+// so latency could only ever be closed by playing slightly fast, old data could
+// never be evicted, and a window left in the background came back and replayed
+// everything it had missed because nothing could skip it.
+//
+// with a MediaSource the buffer is ours: we choose what to append, when to drop
+// it, and where to play from. every one of those becomes possible.
+//
+// the box splitting below is a port of `preview::fmp4::Split`, which is the
+// authority on it -- the server already does exactly this to fan one stream out
+// to many viewers, and the two must agree on what a fragment is.
+const BOX_HEADER = 8;
+// how much played-out video to keep behind the playhead before evicting. some
+// is needed: removing right up to the playhead makes the decoder stutter.
+const KEEP_BEHIND_S = 4;
+
+let mse = null;
+let fetchAbort = null;
+// the eviction timer, kept so it can be stopped. one per reconnect, each
+// holding a SourceBuffer belonging to a MediaSource that has been torn down, is
+// a leak that announces itself as "This SourceBuffer has been removed from the
+// parent media source" from a timer nobody can find.
+let evictTimer = null;
+
+// **the cushion is measured, not chosen.**
+//
+// it exists so a fragment arriving late has something to play through, so its
+// right size is the worst lateness this stream actually produces -- smaller
+// stalls, larger is latency paid for nothing. measured against the deployment:
+// fragments nominally 61ms apart, p99 at 204ms, worst 228ms, so the lateness a
+// cushion has to cover was 167ms at its worst and 143ms at p99.
+//
+// guessing that once and hard-coding it would be wrong the moment the camera,
+// the network or the frame rate changed. appending is where lateness is
+// visible, so the answer is recomputed from the last few seconds of it.
+const JITTER_WINDOW = 120;      // appends remembered, about eight seconds
+const JITTER_SAFETY = 2.0;      // cover twice the worst lately seen
+let gaps = [];
+let lastAppendAt = 0;
+let measuredBufferS = null;
+
+// **what the video clock read when each fragment arrived.**
+//
+// the overlay and the picture reach the browser by different routes -- the
+// overlay as a few hundred bytes of json off the gate stream, the picture
+// remuxed from the main stream, buffered, and played a cushion behind live --
+// so drawing a detection the moment it arrives puts it over a frame from a
+// second ago. the page used to estimate the offset and glide towards it.
+//
+// it does not have to estimate. both are seen here, at the same instant, by the
+// same clock: a fragment arriving at `performance.now()` carries video
+// timestamp `buffered.end`. so an overlay arriving at the same moment belongs
+// over that timestamp, and can simply be held until `currentTime` reaches it.
+//
+// that absorbs every source of skew without naming any of them -- the two
+// ffmpegs' differing latency, the remux, the buffer, the cushion changing size
+// as jitter changes.
+const CLOCK_PAIRS = 240;
+let clockPairs = [];
+
+/// the video timestamp that was arriving at wall-clock `at`.
+function videoTimeAt(at) {
+  if (!clockPairs.length) return null;
+  // the newest pair at or before `at`; anything later had not arrived yet.
+  let best = null;
+  for (const pair of clockPairs) {
+    if (pair.at <= at) best = pair;
+    else break;
+  }
+  return best ? best.pts : clockPairs[0].pts;
+}
+
+/// note when a fragment was appended, and resize the cushion from the spread.
+function sawFragment() {
+  const now = performance.now();
+  if (mp4El.buffered.length) {
+    clockPairs.push({ at: now, pts: mp4El.buffered.end(mp4El.buffered.length - 1) });
+    if (clockPairs.length > CLOCK_PAIRS) clockPairs.shift();
+  }
+  if (lastAppendAt) {
+    gaps.push(now - lastAppendAt);
+    if (gaps.length > JITTER_WINDOW) gaps.shift();
+  }
+  lastAppendAt = now;
+  if (gaps.length < 20) return;
+
+  // the nominal gap is the median; everything past it is lateness. the 95th
+  // rather than the maximum, so one hiccup does not raise the latency for the
+  // next eight seconds -- the drift correction covers the rare outlier.
+  const sorted = [...gaps].sort((a, b) => a - b);
+  const nominal = sorted[Math.floor(sorted.length / 2)];
+  const late = sorted[Math.floor(sorted.length * 0.95)] - nominal;
+  const want = Math.max(0, late) * JITTER_SAFETY / 1000;
+  measuredBufferS = Math.min(Math.max(want, minBufferS), maxBufferS);
+}
+
+/// the cushion in force: measured where there is enough evidence, configured
+/// until then.
+function cushionS() {
+  return measuredBufferS === null ? minBufferS : measuredBufferS;
+}
+
+/// read a box header: total size and four-character type, or null while fewer
+/// than eight bytes are buffered. a declared size below the header is nonsense
+/// and would loop forever, so it stalls rather than spins -- as in the rust.
+function peekBox(buf) {
+  if (buf.length < BOX_HEADER) return null;
+  const size = (buf[0] << 24 | buf[1] << 16 | buf[2] << 8 | buf[3]) >>> 0;
+  const kind = String.fromCharCode(buf[4], buf[5], buf[6], buf[7]);
+  return size >= BOX_HEADER ? { size, kind } : null;
+}
+
+/// the codec, out of the init segment, in the form `isTypeSupported` wants.
+///
+/// `avcC` carries configurationVersion, profile, compatibility and level as
+/// four bytes immediately after its header, and `avc1.PPCCLL` is those three
+/// middle ones in hex. found by scanning for the type rather than walking
+/// moov/trak/mdia/minf/stbl/stsd/avc1 -- the walk is a lot of code to arrive at
+/// the same four bytes, and a stray match cannot survive the check below.
+function codecFrom(init) {
+  for (let i = 0; i + 12 < init.length; i++) {
+    if (init[i + 4] === 0x61 && init[i + 5] === 0x76
+        && init[i + 6] === 0x63 && init[i + 7] === 0x43) {
+      const hex = n => n.toString(16).padStart(2, "0");
+      return `avc1.${hex(init[i + 9])}${hex(init[i + 10])}${hex(init[i + 11])}`;
+    }
+  }
+  return null;
+}
+
+/// appends serialised behind `updateend`: a SourceBuffer takes one at a time.
+function appender(sb) {
+  const queue = [];
+  let closed = false;
+  const pump = () => {
+    if (closed || sb.updating || !queue.length) return;
+    try {
+      sb.appendBuffer(queue.shift());
+    } catch (e) {
+      // the only expected failure is a full buffer, and the fix for that is
+      // eviction, which the watchdog does. anything else and this stream is
+      // finished -- the caller reopens.
+      if (e.name !== "QuotaExceededError") closed = true;
+    }
+  };
+  sb.addEventListener("updateend", pump);
+  return {
+    push(bytes) { queue.push(bytes); pump(); },
+    get broken() { return closed; },
+  };
+}
+
+/// consume a stream that is already open, starting from bytes already read.
+///
+/// **one connection, not two.** the codec has to be known before a SourceBuffer
+/// exists, and it is carried in the init segment -- so the caller reads until it
+/// finds it and hands both the reader and what it consumed to here. opening a
+/// second connection instead would waste a stream and, worse, start it from
+/// wherever the stream had got to, which is mid-GOP and undecodable.
+async function feed(reader, head, sb) {
+  const append = appender(sb);
+  let buf = head;
+  let init = new Uint8Array(0);
+  let initDone = false;
+  let pending = null;
+
+  for (;;) {
+    for (;;) {
+      const box = peekBox(buf);
+      if (!box || buf.length < box.size) break;
+      const bytes = buf.subarray(0, box.size);
+      buf = buf.subarray(box.size);
+
+      if (box.kind === "moof") {
+        // the first moof ends the init segment.
+        if (!initDone) { initDone = true; append.push(init); }
+        // a moof with one already pending means the last had no mdat: emit it
+        // rather than gluing two together.
+        if (pending) append.push(pending);
+        pending = bytes.slice();
+      } else if (box.kind === "mdat" && pending) {
+        const frag = new Uint8Array(pending.length + bytes.length);
+        frag.set(pending); frag.set(bytes, pending.length);
+        append.push(frag);
+        sawFragment();
+        pending = null;
+      } else if (!initDone) {
+        const grew = new Uint8Array(init.length + bytes.length);
+        grew.set(init); grew.set(bytes, init.length);
+        init = grew;
+      }
+    }
+
+    const { done, value } = await reader.read();
+    if (done || append.broken) return;
+    const grown = new Uint8Array(buf.length + value.length);
+    grown.set(buf); grown.set(value, buf.length);
+    buf = grown;
+  }
+}
+
+/// drop what has already been played. without this the buffer grows for as long
+/// as the page is open, which is both unbounded memory and the reason a
+/// backgrounded window used to come back and replay everything it missed.
+function evict(sb) {
+  if (sb.updating || !sb.buffered.length) return;
+  const start = sb.buffered.start(0);
+  const cutoff = mp4El.currentTime - KEEP_BEHIND_S;
+  if (cutoff > start + 1) {
+    try { sb.remove(start, cutoff); } catch { /* racing an append; next tick */ }
+  }
+}
+
+function openVideo(force = false) {
+  if (!videoSrc) return;
+  const now = Date.now();
+  if (!force && now - lastOpen < reconnectMinMs) return;
+  lastOpen = now;
+  mp4El.hidden = false;
+  // a fresh query each time: a browser that cached the previous response would
+  // replay it rather than reconnect.
+  const url = `${videoSrc}?t=${now}`;
+
+  // abandon whatever the last attempt was still doing before starting another,
+  // or two readers append interleaved fragments into one buffer.
+  stopFeed();
+  if (mse && mse.readyState === "open") {
+    try { mse.endOfStream(); } catch { /* already gone */ }
+  }
+
+  // the timeline restarts with the stream, so pairs from the old one would put
+  // every overlay in the wrong place.
+  clockPairs = [];
+  pending.length = 0;
+  mse = new MediaSource();
+  mp4El.src = URL.createObjectURL(mse);
+  mse.addEventListener("sourceopen", async () => {
+    URL.revokeObjectURL(mp4El.src);
+    let sb = null;
+    let reader = null;
+    let head = new Uint8Array(0);
+    try {
+      // the codec has to be declared before a byte is appended, and it is
+      // carried in the init segment -- so read the stream until it turns up,
+      // then keep the very same reader for the rest of the feed.
+      fetchAbort = new AbortController();
+      const res = await fetch(url, { signal: fetchAbort.signal, cache: "no-store" });
+      reader = res.body.getReader();
+      let codec = null;
+      while (!codec && head.length < 65536) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const grown = new Uint8Array(head.length + value.length);
+        grown.set(head); grown.set(value, head.length);
+        head = grown;
+        codec = codecFrom(head);
+      }
+      const type = `video/mp4; codecs="${codec || "avc1.640028"}"`;
+      if (!MediaSource.isTypeSupported(type)) throw new Error(`unsupported ${type}`);
+      sb = mse.addSourceBuffer(type);
+      sb.mode = "segments";
+    } catch (e) {
+      // no MediaSource path available: fall back to letting the element fetch
+      // it itself, which plays but cannot seek or evict.
+      if (reader) reader.cancel().catch(() => {});
+      mp4El.src = url;
+      countVideoFrames();
+      return;
+    }
+    feed(reader, head, sb).catch(() => { /* the watchdog reopens */ });
+    clearInterval(evictTimer);
+    evictTimer = setInterval(() => evict(sb), 2000);
+  });
+  countVideoFrames();
+  // do not start on the first fragment. letting a cushion accumulate before
+  // playing is the difference between riding the live edge and having something
+  // in hand when a fragment arrives late.
+  mp4El.pause();
+  waitingToStart = true;
+}
+
+/// stop feeding: abort the fetch, stop evicting, end the MediaSource.
+///
+/// **this is what closes the connection now, not `removeAttribute("src")`.**
+/// under a MediaSource the bytes arrive through our own `fetch` rather than
+/// through the element, so detaching the element alone would leave the reader
+/// pulling the stream for a picture nobody is watching -- which is exactly the
+/// cost r8.3 exists to avoid, and it would not be visible in `buffered`.
+function stopFeed() {
+  clearInterval(evictTimer);
+  evictTimer = null;
+  if (fetchAbort) fetchAbort.abort();
+  fetchAbort = null;
+  if (mse && mse.readyState === "open") {
+    try { mse.endOfStream(); } catch { /* already gone */ }
+  }
+  mse = null;
+}
+
+function closeVideo() {
+  // actively abort rather than merely pausing. a paused element stops draining
+  // its response, the server's queue for this viewer fills within seconds, and
+  // the viewer is dropped -- so pausing is what *causes* the dead stream it
+  // looks like it is avoiding.
+  stopFeed();
+  mp4El.removeAttribute("src");
+  mp4El.load();
+}
+
+function useVideo(src) {
+  videoSrc = src;
+  openVideo(true);
+
+  // deliberately NOT `emptied`: assigning `src` fires it, so reconnecting on it
+  // makes every reconnect trigger another, and the picture stutters forever at
+  // the retry period rather than recovering once.
+  for (const event of ["ended", "error"]) {
+    mp4El.addEventListener(event, () => { if (wantsVideo()) openVideo(); });
+  }
+
+  let lastTime = -1;
+  let stalledFor = 0;
+  let wedged = 0;
+  setInterval(() => {
+    if (!wantsVideo()) return;
+
+    // **a paused element used to end the check here, so nothing ever restarted
+    // it.** it can stop for reasons that are nobody's fault -- an autoplay
+    // rejection, a decode hiccup -- and once it did, the stall watchdog and the
+    // drift correction below both skipped it while fragments went on arriving.
+    // the gap grew without bound: measured in the field at 0 fps and 20 seconds
+    // behind, climbing, with the server delivering 15 fps throughout.
+    //
+    // being paused while it should be playing *is* the stall.
+    if (mp4El.paused && !waitingToStart) {
+      wedged += 1;
+      mp4El.play().catch(() => { /* still refused; the reopen below is next */ });
+      if (wedged >= STALL_S) { wedged = 0; openVideo(true); }
+      return;
+    }
+    wedged = 0;
+
+    // a frozen picture is a dead stream whether or not the element has data.
+    //
+    // this used to require `readyState < HAVE_FUTURE_DATA` as well, on the
+    // reasoning that a buffered element is playing fine and has merely not
+    // advanced a whole sample between checks. that is true for one tick and
+    // false for eight, and it misses the failure that actually happens: the
+    // buffer *grows* while playback does not move, so the element is the
+    // best-fed thing on the page and showing a still. measured in the field at
+    // 0 fps and twenty seconds behind, climbing, recovering only when a tab
+    // switch forced a reopen -- and then for exactly one frame.
+    //
+    // so: not advancing is the fault. having data is what makes it inexcusable.
+    const ahead = mp4El.buffered.length
+      ? mp4El.buffered.end(mp4El.buffered.length - 1) - mp4El.currentTime
+      : 0;
+    const stuck = mp4El.currentTime === lastTime
+      && (mp4El.readyState < mp4El.HAVE_FUTURE_DATA || ahead > cushionS());
+    if (stuck) {
+      stalledFor += 1;
+      if (stalledFor >= STALL_S) { stalledFor = 0; openVideo(); return; }
+    } else {
+      stalledFor = 0;
+      lastTime = mp4El.currentTime;
+    }
+
+    if (!mp4El.buffered.length) return;
+    const start = mp4El.buffered.start(0);
+    const live = mp4El.buffered.end(mp4El.buffered.length - 1);
+
+    // hold playback until a cushion exists, then start one cushion behind the
+    // edge rather than on it.
+    if (waitingToStart) {
+      if (live - start >= cushionS()) {
+        waitingToStart = false;
+        mp4El.currentTime = Math.max(start, live - cushionS());
+        mp4El.play().catch(() => { /* autoplay policy; controls still work */ });
+      }
+      return;
+    }
+
+    // a gap far beyond any plausible latency is a desync, and is seeked past
+    // whichever policy is configured.
+    const behind = live - mp4El.currentTime;
+    if (behind > DRIFT_SEEK_S && canSeek()) {
+      mp4El.currentTime = Math.max(start, live - cushionS());
+      mp4El.playbackRate = 1;
+      return;
+    }
+
+    // **and everything short of that has to be closed too**, or latency picked
+    // up once -- a stall, a slow fragment, a window left in the background -- is
+    // kept for as long as the page is open. the picture is then live-rate and
+    // minutes old, which looks correct and is useless.
+    //
+    // which way to close it is the operator's call, because it is a real trade.
+    // skipping jumps and is current; speeding keeps every frame and stays late
+    // while it walks back. the default is to skip: this is a street being
+    // watched for a vehicle that may stop for ninety seconds, so a frame that is
+    // late is worth less than a frame that is now, and the detector sees every
+    // frame regardless -- this is only the picture.
+    if (behind > cushionS() + CATCH_UP_SLACK_S) {
+      // the configured policy where it can be honoured, and the one that works
+      // where it cannot. a knob that quietly does nothing is worse than no knob.
+      if (catchUp === "skip" && canSeek()) {
+        mp4El.currentTime = Math.max(start, live - cushionS());
+        mp4El.playbackRate = 1;
+      } else {
+        mp4El.playbackRate = CATCH_UP_RATE;
+      }
+    } else {
+      mp4El.playbackRate = 1;
+    }
+  }, 1000);
+}
+
+fetch("/config").then(r => r.json()).then(cfg => {
+  if (cfg.buffer_ms) minBufferS = cfg.buffer_ms / 1000;
+  if (cfg.max_buffer_ms) maxBufferS = cfg.max_buffer_ms / 1000;
+  if (cfg.reconnect_ms) reconnectMinMs = cfg.reconnect_ms;
+  if (cfg.catch_up) catchUp = cfg.catch_up;
+  if (cfg.kind === "mp4") useVideo(cfg.src);
+  else { imgEl.hidden = false; useMjpeg(cfg.src); }
+  // the tab is offered only when something is recording. an empty events tab
+  // would say the street was quiet, when the truth is that nothing was kept.
+  tabEvents.hidden = !cfg.events;
+  // `[preview] show_parked = false` keeps scenery out of the feed altogether, so
+  // the legend would be describing a box that never arrives.
+  const parked = document.getElementById("legend-parked");
+  if (parked && cfg.show_parked === false) parked.hidden = true;
+  gateSize = cfg.gate || null;
+  encodeSize = cfg.encode || null;
+  // held in gate coordinates and converted for drawing, so what is emitted is
+  // exactly what was read.
+  roi = cfg.roi || [];
+  lines = cfg.perspective || [];
+  showRoi();
+}).catch(() => { imgEl.hidden = false; useMjpeg("/stream.mjpg"); })
+  // **the hash says what the page opens on**, and only once /config has said where
+  // the video comes from: `useVideo` opens it on arrival, so arriving on the crops
+  // tab has to close the live stream rather than start it and leave it running for
+  // a picture behind a hidden div (r8.3).
+  .finally(() => showHash(location.hash));
+
+// presented frames, not decoded ones: `requestVideoFrameCallback` fires when a
+// frame is actually shown, which is the question. older browsers without it
+// simply report no video rate rather than a guess.
+let frameChain = 0;
+
+function countVideoFrames() {
+  if (!mp4El.requestVideoFrameCallback) return;
+  // **one chain at a time.** this is started on every reopen, and a
+  // `requestVideoFrameCallback` loop cannot be cancelled -- so without a
+  // generation every reconnect left another chain running and each one counted
+  // the same frame again. it read 67 fps for a 15 fps stream, which is the kind
+  // of wrong that looks like good news.
+  const mine = ++frameChain;
+  const tick = () => {
+    if (mine !== frameChain) return;
+    videoFrames++;
+    mp4El.requestVideoFrameCallback(tick);
+  };
+  mp4El.requestVideoFrameCallback(tick);
+}
+
+function useMjpeg(src) {
+  imgSrc = src;
+  openMjpeg();
+}
+
+function openMjpeg() {
+  // a fresh query each time, for the reason `openVideo` gives: a browser that
+  // cached the previous response would replay it rather than reconnect.
+  if (imgSrc && !imgEl.getAttribute("src")) imgEl.src = `${imgSrc}?t=${Date.now()}`;
+}
+
+function closeMjpeg() {
+  imgEl.removeAttribute("src");
+}
+
+// detections and video reach the browser by different routes and arrive at
+// different times. a detection is published the instant its gate frame is
+// processed and travels as a few hundred bytes of json; the picture goes through
+// remux, fragmented mp4, and the browser's own buffering, and playback
+// deliberately sits a little behind the live edge so it does not stall.
+//
+// drawn as they arrive, the boxes therefore run *ahead* of the picture: a car is
+// boxed where it will be in a second's time. so detections are held and drawn
+// late, by however far the video is actually behind -- a quantity the drift
+// correction already measures.
+//
+// this is a presentation problem only. it does not touch the crop pipeline.
+// **the delay has to be near-constant, or aligning makes things worse.** if it
+// varies, the overlay is replayed at a varying rate and stutters; held steady,
+// the queue drains at exactly the rate detections arrive and the overlay is as
+// smooth as it ever was, just shifted.
+//
+// the obvious estimate -- buffered edge minus current time -- is a sawtooth: it
+// jumps up as each fragment lands and decays as playback advances. driven from
+// that directly, at sixty hertz, the boxes visibly surge and drag. so it is
+// sampled once a second and the applied delay glides towards it slowly.
+const pending = [];
+const LAG_SAMPLE_MS = 1000;   // how often to look at the estimate
+const LAG_GLIDE_MS = 3;       // most the applied delay may move per frame
+const LAG_SMOOTHING = 0.25;   // how much of each sample to believe
+let videoLagMs = 0;
+let lagTarget = 0;
+let lagSampledAt = 0;
+
+function videoLag() {
+  // mjpeg arrives frame by frame with no buffering, so there is nothing to wait
+  // for; only the mp4 path runs behind.
+  if (mp4El.hidden || !mp4El.buffered.length || mp4El.paused) return 0;
+  const live = mp4El.buffered.end(mp4El.buffered.length - 1);
+  return Math.max(0, (live - mp4El.currentTime) * 1000);
+}
+
+// **this socket is what keeps the pipeline publishing.** the server counts it
+// as a viewer, deliberately -- a browser that opened it first would otherwise
+// wait forever for frames that are gated on the viewer count. the other side of
+// that is this: left open behind the crops or events tab it holds the count
+// above zero on its own, so the encode never stops however much else the page
+// closes. it draws an overlay nobody can see there, so it is closed too.
+let detections = null;
+
+function openDetections() {
+  if (detections) return;
+  detections = new EventSource("/detections");
+  detections.onmessage = (e) => {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+    const at = performance.now();
+    pending.push({ at, pts: videoTimeAt(at), msg });
+  };
+}
+
+function closeDetections() {
+  if (!detections) return;
+  detections.close();
+  detections = null;
+  pending.length = 0;
+}
+
+openDetections();
+
+// draw whichever detection matches what is on screen now, rather than the newest
+// one. runs on the display's own clock so the overlay updates as smoothly as the
+// picture does.
+function tick() {
+  const now = performance.now();
+  if (now - lagSampledAt > LAG_SAMPLE_MS) {
+    lagSampledAt = now;
+    lagTarget += (videoLag() - lagTarget) * LAG_SMOOTHING;
+  }
+  // glide rather than jump, so a changed estimate never shows up as a jolt.
+  const step = Math.max(-LAG_GLIDE_MS, Math.min(LAG_GLIDE_MS, lagTarget - videoLagMs));
+  videoLagMs += step;
+
+  let latest = null;
+  // each overlay was stamped with the video timestamp that was arriving when it
+  // did, so it comes due when playback reaches that timestamp. where there is no
+  // video to be in step with -- the mjpeg path, or before the first fragment --
+  // the arrival clock and the estimated lag are all there is.
+  const bySource = !mp4El.hidden && clockPairs.length > 1;
+  const playhead = mp4El.currentTime;
+  const due = now - videoLagMs;
+  while (pending.length
+         && (bySource && pending[0].pts !== null
+               ? pending[0].pts <= playhead
+               : pending[0].at <= due)) {
+    latest = pending.shift().msg;
+    frames++;
+  }
+  // never let the queue grow without bound if the tab is throttled.
+  if (pending.length > 300) pending.splice(0, pending.length - 300);
+  if (latest) draw(latest);
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+// what the frame is currently fitted to, so the pair below is written once rather
+// than at the frame rate: a custom property on the root restyles the whole page.
+let frameShape = "";
+
+function draw(msg) {
+  // the gated pipeline sends the gate frame (w x h); the raw detector mode
+  // sends a square model input (size). accept either -- and that difference is
+  // also how the page knows which mode it is in, so nothing has to be threaded
+  // through the config to tell it.
+  rawDetector = msg.size !== undefined;
+  if (tab === "live") liveControls.hidden = !rawDetector;
+  const w = msg.w || msg.size || 640;
+  const h = msg.h || msg.size || 640;
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  // **the frame is the encoded picture's box**, which is what keeps the boxes on
+  // the vehicles: the shape is handed to the css, which is the only thing that
+  // knows how much screen there is to hand out.
+  const [ew, eh] = encodeSize || [w, h];
+  if (frameShape !== `${ew}/${eh}`) {
+    frameShape = `${ew}/${eh}`;
+    htmlEl.style.setProperty("--frame-w", ew);
+    htmlEl.style.setProperty("--frame-h", eh);
+  }
+  ctx.clearRect(0, 0, w, h);
+
+  // motion regions first, underneath: seeing why the detector was asked about
+  // a patch of street is most of the value when tuning the gate.
+  //
+  // turquoise rather than grey. these are drawn over a sunlit road that is grey
+  // everywhere, so a thin grey dash was nearly invisible against exactly the
+  // background it matters most on. nothing else in the overlay is this hue, so
+  // it cannot be mistaken for a detection either.
+  ctx.strokeStyle = MOTION_COLOR;
+  ctx.setLineDash([6, 4]);
+  ctx.lineWidth = 2;
+  for (const m of msg.motion || []) ctx.strokeRect(m[0], m[1], m[2] - m[0], m[3] - m[1]);
+  ctx.setLineDash([]);
+
+  const minConf = +confEl.value;
+
+  const boxed = boxesEl.checked ? msg.detections || [] : [];
+  for (const d of boxed) {
+    const isVehicle = VEHICLES.has(d.c);
+    if (d.p < minConf) continue;
+    if (vehOnly.checked && !isVehicle) continue;
+
+    const w = d.x2 - d.x1, h = d.y2 - d.y1;
+    // a box is drawn for every vehicle the whole-frame pass found, which on this
+    // street is mostly parked ones. what matters is which the pipeline acted on,
+    // so the verdict decides how it is drawn rather than leaving six identical
+    // rectangles saying nothing (r8.2):
+    //
+    //   solid      moved enough to be harvested
+    //   dashed     parked: standing here long enough to be scenery
+    //   faint      seen, but its own pixels did not change
+    const acting = isVehicle && d.m !== undefined && d.m >= MOVED_THRESHOLD && !d.parked;
+    const color = acting ? "#3fb950" : (COLORS[d.c] || "#8b949e");
+    ctx.globalAlpha = acting ? 1 : (isVehicle ? 0.5 : 0.3);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = acting ? 3 : 1;
+    ctx.setLineDash(d.parked ? [6, 4] : []);
+    ctx.strokeRect(d.x1, d.y1, w, h);
+    ctx.setLineDash([]);
+
+    // the movement fraction is the number the harvest decides on, so show it
+    // rather than making it guessable from the styling alone.
+    const why = d.m === undefined ? "" :
+      (d.parked ? " parked" : ` m=${d.m.toFixed(2)}`);
+    const label = `${d.c} ${d.p.toFixed(2)}${why}`;
+    ctx.font = "12px ui-monospace, monospace";
+    const tw = ctx.measureText(label).width + 6;
+    ctx.fillStyle = color;
+    ctx.fillRect(d.x1, Math.max(0, d.y1 - 15), tw, 15);
+    ctx.fillStyle = "#0b0d10";
+    ctx.fillText(label, d.x1 + 3, Math.max(11, d.y1 - 4));
+    ctx.globalAlpha = 1;
+  }
+
+  const now = performance.now();
+  if (now - last > 500) {
+    fps = (frames * 1000) / (now - last);
+    videoFps = (videoFrames * 1000) / (now - last);
+    frames = 0; videoFrames = 0; last = now;
+  }
+  // the per-class tally is gone: it counted what the whole-frame pass saw, which
+  // on this street is the same parked cars every frame, so it read as activity
+  // while saying nothing. what is left is what changes.
+  // the overlay's own hold is only worth showing where there is no video gap to
+  // show instead: on the mjpeg path they measure the same thing twice.
+  const lag = mp4El.hidden && videoLagMs > 50 ? ` · held ${(videoLagMs / 1000).toFixed(1)}s` : "";
+  drawRoi();
+  // the picture's own rate, counted from frames actually presented rather than
+  // from the overlay feed beside it. how far behind live it is used to be shown
+  // here too and is not any more: with the cushion measured and closed
+  // automatically it only ever reads a number nobody acts on.
+  const video = mp4El.hidden ? "" : ` · ${videoFps.toFixed(0)}fps`;
+  // say when the configured policy is not the one in use, rather than leaving
+  // the operator to wonder why skipping never skips.
+  const fallback = !mp4El.hidden && catchUp === "skip" && !canSeek() ? " (no seek)" : "";
+  statsEl.textContent =
+    `${fps.toFixed(0)}/s${video}${fallback}` +
+    `${msg.ms ? ` · ${msg.ms.toFixed(0)}ms` : ""}${lag}`;
+}
+
+// ---- whether the street is being watched at all ------------------------------
+
+// the stream keeps hours (r11.3), and outside them the last frame it was sent
+// stays on the screen -- which is not a quiet street but a statement about a
+// street, still being made hours after the watching stopped. the server knows
+// both halves of what is true, that the channels are closed and the minute they
+// open, so the live tab puts them over the picture rather than only in its log.
+const STREAM_REFRESH_MS = 10000;
+const streamEl = document.getElementById("stream-shut");
+const streamMsg = document.getElementById("stream-msg");
+
+async function showStreamState() {
+  const s = await fetch("/stats", { cache: "no-store" })
+    .then(r => r.json()).catch(() => null);
+  // a server that will not answer says nothing about whether it is watching,
+  // and "stream closed" inferred from a timeout is a claim, not a notice.
+  if (!s || !s.input) return false;
+  const shut = !!s.input.stream_shut;
+  streamEl.hidden = !shut;
+  if (shut) {
+    streamMsg.textContent = s.input.stream_opens
+      ? `until ${s.input.stream_opens} local`
+      : "until the window opens";
+  }
+  return shut;
+}
+
+// ---- the harvest viewer -------------------------------------------------
+
+// the harvest only gains a crop every few seconds at best, and refreshing costs
+// a directory listing on the server, so this is deliberately unhurried.
+const CROPS_REFRESH_MS = 4000;
+const CROP_RETRIES = 1;        // re-fetch a crop that failed, past the cache
+
+// how far from the top of the page counts as away from it. a wheel that overshot by
+// a few pixels is somebody who has arrived at the top.
+const AT_TOP_PX = 8;
+
+// **what arrives while the page is scrolled away waits for it to come back.** both
+// grids prepend, so every new card pushes everything below it -- which is how a crop
+// four seconds into reading the harvest moved out from under the pointer, and how an
+// afternoon of recording turned the clip halfway down the screen into something that
+// moved every six seconds.
+//
+// the poll keeps running either way, because the bar above each grid says what the
+// harvest costs against its budget and that must not go stale while somebody reads
+// it. what changes is where the new cards go: behind a button that says how many, and
+// which is also how they are asked for.
+const awayFromTop = () => window.scrollY > AT_TOP_PX;
+
+// what the newest listing holds that a grid has not been shown, counted off the
+// names it already drew -- so the number is "what you have not been shown" rather
+// than "how many the last listing happened to hold".
+function heldBack(list, shown) {
+  const drawn = new Set(shown);
+  return list.filter(c => !drawn.has(c.n));
+}
+
+// the button is a count, so it is painted from a count -- and hidden rather than
+// blank at zero, since "nothing is waiting" is not a thing to press.
+function paintWaiting(button, count) {
+  button.hidden = !count;
+  button.textContent = count ? `${count} waiting` : "";
+}
+
+const liveEl = document.getElementById("live");
+const cropsEl = document.getElementById("crops");
+const verdictsEl = document.getElementById("verdicts");
+const zoomEl = document.getElementById("zoom");
+const tabLive = document.getElementById("tab-live");
+const tabCrops = document.getElementById("tab-crops");
+const tabVerdicts = document.getElementById("tab-verdicts");
+const tabEvents = document.getElementById("tab-events");
+let cropsTimer = null;
+let clipsTimer = null;
+let streamTimer = null;
+
+// how long a copy button says what it did before going back to its label.
+const COPIED_SHOWN_MS = 1200;
+
+// how many labels the picker offers before anything is typed.
+//
+// **the answer is almost always one of the last few used.** on any day two or
+// three labels are in play and the rest are history, so the server ranks them
+// by frecency -- uses over how long since the last one -- and this is how far
+// down that list is worth showing without scrolling.
+const LABELS_OFFERED = 10;
+
+// a name the config would accept as a subject. the reserved two aside, a label
+// invented here becomes an mqtt topic segment and a home assistant id if it
+// ever grows into a `[[subject]]`, and a label under a name no block can carry
+// is one nothing can train on.
+const SUBJECT_NAME = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+
+// every label in use, newest-and-commonest first, fetched when a picker opens
+// rather than held: another session labelling against the same harvest is the
+// ordinary case, and its labels should show up here.
+async function knownLabels() {
+  const got = await fetch("/labels").then(r => r.json()).catch(() => null);
+  return (got && got.labels) || [];
+}
+
+// the label on a tile, and the pencil that changes it.
+//
+// **one control rather than a button per answer.** a row of buttons only fits
+// the answers somebody thought of in advance, and the thing that actually
+// happens is seeing something the classifier has no name for yet. so: what it
+// is labelled, and `edit`.
+function labelStrip(c) {
+  const row = document.createElement("div");
+  row.className = "labels";
+  const said = document.createElement("span");
+  said.className = "truth";
+  const edit = document.createElement("button");
+  edit.textContent = "edit";
+  edit.title = "label this crop";
+  const paint = () => {
+    said.textContent = c.truth || "unlabelled";
+    row.classList.toggle("decided", !!c.truth);
+  };
+  edit.onclick = e => {
+    e.stopPropagation();
+    openPicker(row, c, paint);
+  };
+  row.append(said, edit);
+  paint();
+  return row;
+}
+
+// the picker itself: a field, and the labels worth offering.
+//
+// arrow keys move, enter takes the highlighted one, typing filters, escape
+// gives up, and a click takes whatever was clicked. what is typed stands on
+// its own when nothing matches it, because naming something the classifier has
+// never heard of is the case this exists for.
+function openPicker(row, c, paint) {
+  if (row.querySelector(".picker")) return;
+  const box = document.createElement("span");
+  box.className = "picker";
+  const field = document.createElement("input");
+  field.placeholder = c.truth || "label";
+  const list = document.createElement("div");
+  list.className = "options";
+  box.append(field, list);
+  row.appendChild(box);
+  // the card is what the picker hangs from, and on the last column it hangs from the
+  // right of the window: the labels past the edge are unreachable and the page goes
+  // sideways, moving the very crop being labelled out of sight. so it turns around
+  // and hangs from the card's other edge.
+  if (box.getBoundingClientRect().right > innerWidth) box.style.right = "0";
+  field.focus();
+
+  let offered = [];
+  let shown = [];
+  let at = 0;
+
+  const close = () => { box.remove(); };
+
+  const commit = async truth => {
+    if (!truth || !(SUBJECT_NAME.test(truth) || truth === "other" || truth === "unclear")) {
+      field.className = "refused";
+      return;
+    }
+    close();
+    const sent = await fetch("/label", {
+      method: "POST",
+      body: JSON.stringify({n: c.n, truth}),
+    }).catch(() => null);
+    // shown from what the server took rather than from what was clicked: a
+    // refused label that looked accepted is a decision somebody believes they
+    // made.
+    if (sent && sent.ok) c.truth = truth;
+    paint();
+    if (!(sent && sent.ok)) row.querySelector(".truth").textContent = "refused";
+  };
+
+  const draw = () => {
+    const typed = field.value.trim();
+    shown = offered
+      .filter(l => !typed || l.truth.includes(typed))
+      .slice(0, LABELS_OFFERED);
+    at = Math.min(at, Math.max(0, shown.length - 1));
+    list.innerHTML = "";
+    shown.forEach((l, i) => {
+      const option = document.createElement("div");
+      option.className = i === at ? "option on" : "option";
+      option.textContent = l.uses ? `${l.truth} (${l.uses})` : l.truth;
+      option.onmousedown = e => { e.preventDefault(); commit(l.truth); };
+      list.appendChild(option);
+    });
+    // what is typed, when it is not one of them: the new subject case, said
+    // out loud rather than left to a blind enter.
+    if (typed && !shown.some(l => l.truth === typed)) {
+      const fresh = document.createElement("div");
+      fresh.className = shown.length ? "option new" : "option new on";
+      fresh.textContent = `${typed} -- new label`;
+      fresh.onmousedown = e => { e.preventDefault(); commit(typed); };
+      list.appendChild(fresh);
+    }
+  };
+
+  field.oninput = () => { at = 0; draw(); };
+  field.onkeydown = e => {
+    e.stopPropagation();
+    if (e.key === "ArrowDown") { at = Math.min(at + 1, shown.length - 1); draw(); }
+    else if (e.key === "ArrowUp") { at = Math.max(at - 1, 0); draw(); }
+    // the highlighted label, or what was typed when nothing matches it --
+    // which is how a label nobody has used before gets made.
+    else if (e.key === "Enter") commit(shown.length ? shown[at].truth : field.value.trim());
+    else if (e.key === "Escape") close();
+  };
+  field.onblur = () => setTimeout(close, 150);
+
+  draw();
+  knownLabels().then(labels => { offered = labels; draw(); });
+}
+
+// **`navigator.clipboard` is undefined where this page runs.** it exists only in
+// a secure context and the preview is served over plain http on the camera's own
+// lan address, so the modern call is exactly the one that silently does nothing
+// on every real deployment. a hidden textarea works in both places.
+//
+// the button is told the outcome because the clipboard cannot be read back: a
+// refused copy has nowhere else to show.
+function copyText(text, button) {
+  const held = document.createElement("textarea");
+  held.value = text;
+  document.body.appendChild(held);
+  held.select();
+  const copied = document.execCommand("copy");
+  document.body.removeChild(held);
+  const was = button.textContent;
+  button.textContent = copied ? "copied" : "select it";
+  setTimeout(() => { button.textContent = was; }, COPIED_SHOWN_MS);
+}
+
+// a small button rather than text to select, because clicking anything on a
+// card plays or zooms what is on it -- so a path cannot be picked up by hand
+// without opening the thing it names.
+function copyButton(text, what) {
+  const button = document.createElement("button");
+  button.textContent = "copy";
+  button.className = "copy";
+  button.title = `copy ${what}`;
+  button.onclick = e => { e.stopPropagation(); copyText(text, button); };
+  return button;
+}
+
+// **when it happened, not how long ago.** "30s" answers "recently" and never
+// "at 14:32", and looking something up against a clip, a ticket or a memory of
+// the street needs the second one. the date is shown only when it is not today,
+// so the common case stays short.
+function clockOf(t) {
+  const d = new Date(t);
+  const time = d.toLocaleTimeString([], { hour12: false });
+  const today = new Date();
+  const sameDay = d.getFullYear() === today.getFullYear()
+    && d.getMonth() === today.getMonth()
+    && d.getDate() === today.getDate();
+  return sameDay ? time : `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${time}`;
+}
+
+// **what a card says about one crop, which is a different thing per tab.**
+//
+// the crops tab is "what did the detector keep, and did stage two disagree",
+// where `truck` beside `go4` is the case worth finding. the verdicts tab is "what
+// did stage two fire on, and by how much": the detector's class and confidence
+// answer a different question there, and two numbers of unrelated kinds invite
+// reading one as the other. what is shown instead is the margin -- the same figure
+// a notification quotes and the figure the bar in `trained.toml` is compared
+// against, which is what a person is deciding about while this tab is open.
+//
+// a verdict with no recorded margin keeps its claim and borrows no number: the
+// harvest is full of crops written before it was kept, and the detector's 0.75
+// standing in for a margin is a number that looks measured and is not.
+//
+// a crop a person called the subject is on that tab too, and says who said so:
+// stage two either missed it or named something else, so no margin is its own.
+function captionOf(c, recognised) {
+  if (recognised && c.truth && c.truth !== c.s) {
+    return `<b class="verdict">${c.truth.toUpperCase()}</b> by hand`;
+  }
+  if (recognised && c.s) {
+    const gap = typeof c.m === "number" ? ` ${c.m >= 0 ? "+" : ""}${c.m.toFixed(2)}` : "";
+    return `<b class="verdict">${c.s.toUpperCase()}</b>${gap}`;
+  }
+  return c.s
+    ? `<b class="verdict">${c.s}</b> &middot; ${c.c} ${c.p.toFixed(2)}`
+    : `<b>${c.c}</b> ${c.p.toFixed(2)}`;
+}
+
+// **two tabs over one harvest, from one implementation.**
+//
+// the crops tab is everything the harvester kept; the verdicts tab is the same
+// listing asked for `?recognised=1`. the cards, the paging, the diffing and the
+// retry rules are identical, and the mistakes this grid has already made --
+// the firefox load abort, the permanently cached failed fetch, the evicted crop
+// that would not disappear -- are fixed in both or in neither.
+function harvestGrid({ grid, stats, waits, recognised, empty, end }) {
+  // figures already on the page, by crop name. the grid is *diffed* against this
+  // rather than rebuilt: clearing innerHTML every few seconds throws away every
+  // img element and starts every download again, which is both a lot of traffic
+  // and a visible flicker. crops are immutable and named uniquely, so a figure
+  // that is still in the list is still correct and can simply be reused.
+  const shown = new Map();
+  // every crop known to this grid, newest first. the server pages backwards
+  // through the harvest as we scroll, so this grows rather than being replaced.
+  let items = [];
+  let exhausted = false;
+  let loading = false;
+  let harvest = { kept: 0, used: 0, budget: 0 };
+  // what the newest listing holds that this grid has not been shown, because the page
+  // is not at the top. counted from it rather than merged from it: releasing is one
+  // more poll, so nothing the budget evicted in the meantime is ever drawn.
+  let waiting = [];
+
+  // the button is the page asking right now, wherever it happens to be scrolled.
+  waits.onclick = () => refresh(true);
+
+  // load more when the bottom of the grid comes into view, rather than on a
+  // scroll handler: the observer fires once per crossing instead of continuously.
+  const sentinel = document.createElement("div");
+  sentinel.style.cssText = "grid-column:1/-1;padding:1rem;color:#7d8590;text-align:center";
+  sentinel.textContent = "...";
+  new IntersectionObserver(
+    entries => { if (entries.some(e => e.isIntersecting)) older(); },
+    { root: null, rootMargin: "400px" }
+  ).observe(sentinel);
+
+  function makeFigure(c) {
+    const fig = document.createElement("figure");
+    const img = document.createElement("img");
+    // **not lazy.** deferring these is textbook and it was wrong here: the grid
+    // holds one page of crops, the viewer is on a lan, and a tile below the fold
+    // stayed empty until it was scrolled to. measured: 24 of 126 tiles blank,
+    // never requested at all, indistinguishable on screen from a crop that failed
+    // to load or one the harvest got wrong -- which is the thing this page exists
+    // to let somebody notice. a page of crops is a few megabytes; the doubt is
+    // worth more than the bytes.
+    img.decoding = "async";
+    const src = "/crops/" + encodeURIComponent(c.n);
+    // crops are served `immutable`, so a fetch that failed is a failure the
+    // browser will keep answering with -- clicking the figure re-requests the same
+    // url and gets the same nothing back. a query param the cache has not seen
+    // forces a real request; figures are reused between renders, so without this
+    // one bad fetch leaves a blank tile until the page is reloaded.
+    let tries = 0;
+    img.onerror = () => { if (tries++ < CROP_RETRIES) img.src = `${src}?retry=${tries}`; };
+    img.src = src;
+    img.onclick = () => {
+      address(recognised ? "verdict" : "crop", c.n);
+      zoomCrop(img.src, c.t);
+    };
+    const cap = document.createElement("figcaption");
+    // the same shape the events grid uses: what it is, then when it was. the
+    // resolution used to sit here and answered a question nobody was asking --
+    // every crop is as big as the vehicle was, which the picture already shows.
+    fig.classList.toggle("recognised", !!c.s && !!c.a);
+    cap.innerHTML = `<span>${captionOf(c, recognised)}</span><span><time>${clockOf(c.t)}</time></span>`;
+    fig.append(img, cap, labelStrip(c));
+    return fig;
+  }
+
+  function render() {
+    const wanted = new Set(items.map(c => c.n));
+    for (const [name, fig] of shown) {
+      if (!wanted.has(name)) { fig.remove(); shown.delete(name); }
+    }
+    // **only move what is out of place.**
+    //
+    // this used to append every figure on every pass, on the reasoning that
+    // appending an element already in the document moves it rather than recreating
+    // it, so the images would not reload. they do not reload -- but in firefox a
+    // move *aborts* a load still in flight (NS_BINDING_ABORTED), so every crop that
+    // had not finished arriving within the refresh interval was cancelled, and the
+    // tile stayed blank until something else re-created it.
+    //
+    // crops are only ever prepended, so walking the grid alongside the list leaves
+    // every existing figure untouched and inserts just the new ones.
+    let at = 0;
+    for (const c of items) {
+      let fig = shown.get(c.n);
+      if (!fig) { fig = makeFigure(c); shown.set(c.n, fig); }
+      if (grid.children[at] !== fig) grid.insertBefore(fig, grid.children[at] || null);
+      at++;
+    }
+    if (grid.children[at] !== sentinel) grid.append(sentinel);
+    stats.innerHTML = describe();
+    paintWaiting(waits, waiting.length);
+  }
+
+  // what the bar says. the crops tab answers "how full is the disk", which is
+  // the question a harvest that evicts oldest-first raises. the verdicts tab
+  // answers "how many were there", against the harvest they were drawn from --
+  // the disk belongs to the whole harvest and is reported one tab over.
+  function describe() {
+    if (!recognised) {
+      return harvest.kept
+        ? describeDisk("crops", harvest.kept, harvest.used, harvest.budget)
+        : empty;
+    }
+    // "nothing recognised yet" and "nothing can be" are different answers, and
+    // only one of them is worth waiting on. said the way the events grid says
+    // "not recording". what a person labelled is listed either way.
+    const none = harvest.classifying === false ? "classification is off" : empty;
+    // rejected verdicts are filtered out here, so an empty tab has two opposite
+    // meanings: nothing fired, or everything that fired was wrong. the second is
+    // the case that actually happens -- every crop named on the first evening
+    // was a false positive -- and calling it "nothing recognised yet" would hide
+    // the result worth knowing. a verdict marked unclear has left too, and is
+    // said apart: nobody called it wrong.
+    const thrown = [
+      harvest.rejected ? `${harvest.rejected} rejected by hand` : "",
+      harvest.unclear ? `${harvest.unclear} marked unclear` : "",
+    ].filter(Boolean).join(", ");
+    if (!items.length) return thrown ? `${none}; ${thrown}` : none;
+    // "+" until the scroll reaches the end, because until then this is what has
+    // been paged in rather than what there is.
+    const of = harvest.kept ? ` of ${harvest.kept} crops` : "";
+    // counted by the server over every standing verdict, not over what has been
+    // paged in, so it does not grow as the grid scrolls.
+    return `${items.length}${exhausted ? "" : "+"} standing${of}, ` +
+      `${harvest.alerted || 0} alerted` + (thrown ? `, ${thrown}` : "");
+  }
+
+  function merge(list) {
+    const known = new Set(items.map(c => c.n));
+    items = items.concat(list.filter(c => !known.has(c.n)));
+    items.sort((a, b) => b.t - a.t);
+  }
+
+  async function page(before) {
+    if (loading) return [];
+    loading = true;
+    try {
+      const q = [recognised ? "recognised=1" : "", before === undefined ? "" : `before=${before}`]
+        .filter(Boolean).join("&");
+      const body = await (await fetch(q ? `/crops?${q}` : "/crops")).json();
+      // the totals come with every page and cost nothing to send: the harvester
+      // already knows them, so the grid is never guessing about the budget.
+      harvest = {
+        kept: body.kept, used: body.used, budget: body.budget,
+        classifying: body.classifying, rejected: body.rejected, unclear: body.unclear,
+      };
+      return body.crops;
+    } catch { return []; }
+    finally { loading = false; }
+  }
+
+  // poll for new arrivals. only the newest page, so this stays cheap however far
+  // the viewer has scrolled back. `now` is the button: a person who asks for the
+  // waiting crops gets them wherever the page happens to be.
+  async function refresh(now = false) {
+    const list = await page();
+    if (!list.length && !items.length) {
+      grid.innerHTML = `<span style="color:#7d8590">${describe()}</span>`;
+      stats.innerHTML = describe();
+      return;
+    }
+    // the harvester deletes oldest-first, so a crop can genuinely vanish. drop
+    // anything missing from the range this page covers -- but only that range,
+    // or everything scrolled past would disappear on the next poll.
+    if (list.length) {
+      const oldestHere = list[list.length - 1].t;
+      const names = new Set(list.map(c => c.n));
+      items = items.filter(c => c.t < oldestHere || names.has(c.n));
+    }
+    // and a grid with nothing in it yet has nothing to hold still, which is the
+    // difference between freezing a page being read and opening one to a button.
+    if (!now && items.length && awayFromTop()) {
+      waiting = heldBack(list, items.map(c => c.n));
+      render();
+      return;
+    }
+    waiting = [];
+    merge(list);
+    render();
+  }
+
+  async function older() {
+    if (exhausted || loading || !items.length) return;
+    const list = await page(items[items.length - 1].t);
+    if (!list.length) { exhausted = true; sentinel.textContent = end; render(); return; }
+    merge(list);
+    render();
+  }
+
+  return { refresh };
+}
+
+const crops = harvestGrid({
+  grid: document.getElementById("grid"),
+  stats: document.getElementById("crops-stats"),
+  waits: document.getElementById("crops-waiting"),
+  recognised: false,
+  empty: "nothing harvested yet",
+  end: "end of the harvest",
+});
+
+// **the tab that answers "has it ever seen one".** the harvest is where a
+// sighting appears first -- a crop is written every time a vehicle moves, and a
+// clip is only named `subject` once several looks have agreed -- so this is the
+// earliest and the most complete view of what stage two has recognised.
+const verdicts = harvestGrid({
+  grid: document.getElementById("verdicts-grid"),
+  stats: document.getElementById("verdicts-stats"),
+  waits: document.getElementById("verdicts-waiting"),
+  recognised: true,
+  empty: "nothing recognised yet",
+  end: "end of what was recognised",
+});
+
+// ---- the events viewer --------------------------------------------------
+
+// clips arrive at event rate rather than frame rate -- a busy ten minutes holds
+// 27 of them and a quiet hour none -- so this polls more slowly than the
+// harvest does.
+const CLIPS_REFRESH_MS = 6000;
+const CLIP_RETRIES = 2;        // re-fetch a card that failed, past the cache
+// mirrors `record::Worth`, and the rank is the eviction order: when the disk
+// fills, what survives is whatever ranks highest.
+const WORTH = {
+  motion:    { rank: 0, color: "#8b949e" },
+  detection: { rank: 1, color: "#d29922" },
+  subject:   { rank: 2, color: "#3fb950" },
+};
+
+const eventsEl = document.getElementById("events");
+const clipsEl = document.getElementById("clips");
+const eventsStats = document.getElementById("events-stats");
+const eventsWaits = document.getElementById("events-waiting");
+const worthFilter = document.getElementById("worth-filter");
+const clipsShown = new Map();
+let held = { kept: 0, used: 0, budget: 0, dir: "", clips: [], selections: [] };
+// what the newest listing holds that this grid has not been shown, because the page is
+// not at the top -- counted from, never merged from, for the reason `awayFromTop` gives.
+let clipsWaiting = [];
+eventsWaits.onclick = () => loadClips(true);
+
+// down to kB rather than stopping at MB. a clip of a vehicle crossing is tens
+// of megabytes, but one closed a moment after it opened is kilobytes, and
+// rounding every short clip to "0 MB" hides exactly the ones worth asking about.
+function mb(bytes) {
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
+  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
+  return `${Math.round(bytes / 1e3)} kB`;
+}
+
+// **an unbounded scroll is an unbounded queue of ffmpeg decodes.**
+//
+// every poster is cut on demand: the server serialises them behind one mutex
+// and spawns a process per cache miss, and tiny_http is a thread per
+// connection, so each queued request holds a thread while it waits. the list
+// used to be capped at sixty cards, and that cap was the only thing bounding
+// it. infinite scroll removes the cap, so the bound has to move here.
+//
+// `loading="lazy"` is not that bound. it fetches well ahead of the viewport, so
+// how many decodes are in flight would be set by how fast somebody scrolls.
+// asking for a few at a time is: the cache fills as they arrive, and a warm
+// cache answers from disk without ffmpeg at all.
+const POSTER_CONCURRENCY = 3;
+let posterBusy = 0;
+const posterQueue = [];
+
+function pumpPosters() {
+  while (posterBusy < POSTER_CONCURRENCY && posterQueue.length) {
+    const start = posterQueue.shift();
+    posterBusy++;
+    start();
+  }
+}
+
+// counted down however the request ended, including a card scrolled away from
+// before it arrived -- a slot never freed is a grid that stops loading.
+function posterDone() {
+  posterBusy = Math.max(0, posterBusy - 1);
+  pumpPosters();
+}
+
+// asked for only once the card is near the viewport, and then queued rather
+// than fetched.
+const posterWanted = new IntersectionObserver(entries => {
+  for (const e of entries) {
+    if (!e.isIntersecting) continue;
+    posterWanted.unobserve(e.target);
+    const img = e.target;
+    posterQueue.push(() => {
+      if (!img.isConnected) { posterDone(); return; }
+      img.src = img.dataset.poster;
+    });
+    pumpPosters();
+  }
+}, { rootMargin: "300px" });
+
+// **a clip's own first frame is the worst thumbnail it contains.** the pre-roll
+// exists so that the file opens before anything happened, so every card showed
+// the same empty street -- and twenty-three identical empty streets read as
+// "nothing was captured", which is the opposite of what the tab is for. the
+// server hands back the clearest crop harvested during the clip, which is a
+// picture of the vehicle itself, already cached and a few kilobytes rather than
+// the couple of megabytes of video a poster frame costs.
+//
+// clips with no crop fall back to the video element, which is honest: nothing
+// was harvested during them, and an empty street is what they hold.
+// **a frame from the clip, not a crop matched to it.**
+//
+// the harvest holds a far better picture of the vehicle -- close, cropped, a
+// few kilobytes -- and for a while the card showed that, found by looking for
+// crops taken during the clip. but which crops those are has to be inferred
+// from timestamps, and every way of inferring it was wrong somewhere: bounded
+// by `max_clip_secs` it swallowed the next two passages, and bounded by the
+// next clip it still owned the quiet gap between them, and the newest clip had
+// nothing after it to stop at. measured on the deployment, three consecutive
+// cards showed one picture of a vehicle in none of them.
+//
+// a frame out of the clip's own bytes cannot be wrong about which clip it
+// belongs to. it is a wide shot where the crop was a close-up, and it costs the
+// seconds up to the trigger in video rather than a cached thumbnail -- which is
+// the price of the card being about the clip it sits on.
+function makeClip(c) {
+  const fig = document.createElement("figure");
+  const src = "/clips/" + encodeURIComponent(c.n);
+  // **the server cuts the frame, because the browser cannot.** a `<video>` with
+  // `#t=` pointing into the clip is the obvious card and it does not work: a
+  // fragmented mp4 has no index, so `seekable` is `[0, 0]` and `currentTime`
+  // stays at zero -- measured in chrome against real clips. every card showed
+  // frame one, which is the pre-roll, which is the part with nothing in it.
+  const art = document.createElement("img");
+  art.decoding = "async";
+  const url = "/poster/" + encodeURIComponent(c.n);
+  // held rather than assigned: `posterWanted` queues it, so at most
+  // POSTER_CONCURRENCY decodes are ever asked for at once.
+  art.dataset.poster = url;
+  posterWanted.observe(art);
+  art.onload = posterDone;
+  // **both are served `immutable`, so a load that failed is a failure the
+  // browser will keep answering with.** over wifi a dropped connection leaves
+  // a card black until the page is reloaded, and clicking it re-requests the
+  // same url and gets the same nothing. a query the cache has not seen forces
+  // a real request. same reasoning as the crops grid, which learned it first.
+  let tries = 0;
+  art.onerror = () => {
+    if (tries++ <= CLIP_RETRIES) {
+      art.src = `${url}?retry=${tries}`;
+      return;
+    }
+    // out of tries: give the slot back or the grid stops loading.
+    posterDone();
+  };
+  art.onclick = () => {
+    address("event", c.n);
+    zoomClip(src, c.n);
+  };
+  const w = WORTH[c.w] || WORTH.motion;
+  const cap = document.createElement("figcaption");
+  // `c.d` is zero when the mtime-derived span is implausible -- a directory
+  // copied with `cp` claims every clip ran as long as it has existed -- and the
+  // card then says nothing rather than "0s".
+  const ran = c.d ? ` &middot; ${c.d < 10 ? c.d.toFixed(1) : Math.round(c.d)}s` : "";
+  cap.innerHTML =
+    `<span class="worth" style="color:${w.color}">${c.w}</span>` +
+    `<span><time>${clockOf(c.t)}</time>${ran}</span>`;
+  // **the path, not the filename.** what this is for is `--dense`, which takes
+  // a clip to pull every crop out of, and it resolves that against the
+  // directory metermate runs in -- the same one `[record] dir` is written
+  // relative to, which is what the listing reports.
+  cap.append(copyButton(`${held.dir}/${c.n}`, "this clip's path"));
+  fig.append(art, cap, marksOn(c.n));
+  return fig;
+}
+
+// the passages marked on this clip, each with the `x` that takes it back.
+//
+// **shown on the card the mark was taken from.** a mark with nothing to show
+// for it is a mark made twice, and the place to undo one is where it is
+// visible rather than in a text file on the deployment.
+function marksOn(clip) {
+  const row = document.createElement("div");
+  row.className = "marks";
+  const paint = () => {
+    row.innerHTML = "";
+    for (const s of held.selections.filter(s => s.n === clip)) {
+      const chip = document.createElement("span");
+      chip.className = "mark";
+      chip.textContent = s.window;
+      const drop = document.createElement("button");
+      drop.textContent = "x";
+      drop.title = `unmark ${s.window}`;
+      drop.onclick = async e => {
+        e.stopPropagation();
+        const sent = await fetch("/unselect", {
+          method: "POST",
+          body: JSON.stringify({n: clip, window: s.window}),
+        }).catch(() => null);
+        if (!(sent && sent.ok)) return;
+        held.selections = held.selections.filter(o => !(o.n === clip && o.window === s.window));
+        paint();
+      };
+      chip.appendChild(drop);
+      row.appendChild(chip);
+    }
+  };
+  paint();
+  return row;
+}
+
+// shown when the grid is empty, and appended last so `append` moves it back
+// below the cards rather than leaving it stranded among them.
+const clipsEmpty = document.createElement("span");
+clipsEmpty.style.cssText = "grid-column:1/-1;color:#7d8590";
+
+// **what the page must not round away**: how many clips are on disk, what they
+// cost against the budget, and whether what is on screen is all of them. a
+// truncated grid that did not say so would read as the whole of what was
+// recorded, which is how a filled disk goes unnoticed.
+// **count, then what it costs against the budget, in that order on both tabs.**
+// the two grids answer the same question about the same kind of thing, and a
+// filled disk is the thing neither may round away.
+function describeDisk(kind, kept, used, budget) {
+  return `${kept} ${kind} &middot; ${mb(used)} of ${mb(budget)}`;
+}
+
+function describeClips(showing) {
+  // said first, because a list that never grows looks like a list that has
+  // stopped working. these clips outlive the setting that wrote them.
+  const off = held.recording === false ? "not recording -- " : "";
+  if (!held.kept) return `${off}nothing recorded yet`;
+  const parts = [off + describeDisk("clips", held.kept, held.used, held.budget)];
+  if (showing < held.clips.length) parts.push(`${showing} past the filter`);
+  // an entity rather than spaces, which html collapses to one and runs the
+  // numbers together. nothing here comes from a filename, so it is all ours.
+  return parts.join(" &middot; ");
+}
+
+// diffed against what is on screen rather than rebuilt, for a stronger reason
+// than the crops grid has: rebuilding would replace every video element and
+// restart whatever one of them had buffered.
+function renderClips() {
+  const floor = WORTH[worthFilter.value].rank;
+  const wanted = held.clips.filter(c => (WORTH[c.w] || WORTH.motion).rank >= floor);
+  const names = new Set(wanted.map(c => c.n));
+  for (const [name, fig] of clipsShown) {
+    if (!names.has(name)) { fig.remove(); clipsShown.delete(name); }
+  }
+  // **only move what is out of place**, for the reason the crops grid gives:
+  // appending an element already in the document moves rather than recreates
+  // it, which does not reload the image -- but in firefox a move *aborts* a
+  // load still in flight, so a card whose thumbnail had not finished arriving
+  // within the refresh interval was cancelled and stayed blank.
+  //
+  // clips are only ever prepended, so walking the grid alongside the list
+  // leaves every existing card untouched and inserts just the new ones.
+  let at = 0;
+  for (const c of wanted) {
+    let fig = clipsShown.get(c.n);
+    if (!fig) { fig = makeClip(c); clipsShown.set(c.n, fig); }
+    if (clipsEl.children[at] !== fig) clipsEl.insertBefore(fig, clipsEl.children[at] || null);
+    at++;
+  }
+  clipsEmpty.textContent = held.kept ? "nothing kept at that level" : "nothing recorded yet";
+  clipsEmpty.hidden = wanted.length > 0;
+  if (clipsEl.children[at] !== clipsEmpty) clipsEl.append(clipsEmpty);
+  at++;
+  // hidden once the list is exhausted *and* there is nothing to scroll for,
+  // so an empty tab does not end with a dangling "...".
+  clipsSentinel.hidden = wanted.length === 0;
+  if (clipsEl.children[at] !== clipsSentinel) clipsEl.append(clipsSentinel);
+  eventsStats.innerHTML = describeClips(wanted.length);
+  // counted through the filter that is on screen, or "3 waiting" would promise three
+  // cards and show one.
+  paintWaiting(eventsWaits, keptBack(floor).length);
+}
+
+// how many of what is waiting this tab would actually draw.
+function keptBack(floor) {
+  return clipsWaiting.filter(c => (WORTH[c.w] || WORTH.motion).rank >= floor);
+}
+
+let clipsExhausted = false;
+let clipsLoading = false;
+
+async function fetchClips(before) {
+  if (clipsLoading) return [];
+  clipsLoading = true;
+  try {
+    const url = before === undefined ? "/clips" : `/clips?before=${before}`;
+    const body = await (await fetch(url)).json();
+    held.kept = body.kept;
+    held.used = body.used;
+    held.budget = body.budget;
+    held.recording = body.recording;
+    held.dir = body.dir;
+    // read alongside the listing rather than once: `--prepare` is run from a
+    // shell while this page is open, and a mark that has been cut should stop
+    // claiming to be waiting.
+    const marked = await fetch("/selections").then(r => r.json()).catch(() => null);
+    held.selections = (marked && marked.selections) || [];
+    return body.clips;
+  } catch { return []; }
+  finally { clipsLoading = false; }
+}
+
+function mergeClips(list) {
+  const known = new Set(held.clips.map(c => c.n));
+  held.clips = held.clips.concat(list.filter(c => !known.has(c.n)));
+  held.clips.sort((a, b) => b.t - a.t);
+}
+
+// poll for new arrivals: only the newest page, so this stays cheap however far
+// back the viewer has scrolled. `now` is the waiting button, which arrives however
+// far the page happens to be scrolled.
+async function loadClips(now = false) {
+  const list = await fetchClips();
+  // the budget evicts oldest-first, so a clip can genuinely vanish. drop
+  // anything missing from the range this page covers -- but only that range, or
+  // everything scrolled past would disappear on the next poll.
+  if (list.length) {
+    const oldestHere = list[list.length - 1].t;
+    const names = new Set(list.map(c => c.n));
+    held.clips = held.clips.filter(c => c.t < oldestHere || names.has(c.n));
+  }
+  // a grid with no cards on it has nothing to hold still: opening the tab to a button
+  // and no clips is the failure this is here to avoid, not the one it is for.
+  if (!now && clipsShown.size && awayFromTop()) {
+    clipsWaiting = heldBack(list, held.clips.map(c => c.n));
+    renderClips();
+    return;
+  }
+  clipsWaiting = [];
+  mergeClips(list);
+  renderClips();
+}
+
+async function loadOlderClips() {
+  if (clipsExhausted || clipsLoading || !held.clips.length) return;
+  const list = await fetchClips(held.clips[held.clips.length - 1].t);
+  if (!list.length) {
+    clipsExhausted = true;
+    clipsSentinel.textContent = "end of the events";
+    return;
+  }
+  mergeClips(list);
+  renderClips();
+}
+
+// mirrors the crops grid: load more when the bottom comes into view, rather
+// than on a scroll handler.
+const clipsSentinel = document.createElement("div");
+clipsSentinel.style.cssText = "grid-column:1/-1;padding:1rem;color:#7d8590;text-align:center";
+clipsSentinel.textContent = "...";
+new IntersectionObserver(
+  entries => { if (entries.some(e => e.isIntersecting)) loadOlderClips(); },
+  { root: null, rootMargin: "400px" }
+).observe(clipsSentinel);
+
+worthFilter.onchange = renderClips;
+
+// the overlay shows a crop or a clip, and only ever one of them.
+const zoomImg = zoomEl.querySelector("img");
+const zoomVid = zoomEl.querySelector("video");
+const zoomBusy = document.getElementById("zoom-busy");
+const zoomJump = document.getElementById("zoom-jump");
+const markEl = document.getElementById("mark");
+const markIn = document.getElementById("mark-in");
+const markOut = document.getElementById("mark-out");
+const markSelect = document.getElementById("mark-select");
+const markWindow = document.getElementById("mark-window");
+
+// **the clip is opened, not seeked into.** these files carry no index: measured
+// in chrome against a finished twenty second clip, `duration` reads 1.4,
+// `seekable` is [0,0], and assigning `currentTime` lands back at zero. so the
+// offset is told rather than jumped to, and the clip plays from its start.
+async function offerTheRecording(at) {
+  zoomJump.hidden = true;
+  if (tabEvents.hidden || !at) return;
+  let found;
+  try {
+    const r = await fetch(`/clip-at?t=${at}`);
+    if (!r.ok) return;              // nothing was recording then
+    found = await r.json();
+  } catch { return; }
+  // still looking at the same crop? the overlay may have moved on while this
+  // was in flight.
+  if (zoomAt !== at) return;
+  zoomJump.textContent = `open the ${found.w} recording -- this crop is ${found.at}s in`;
+  zoomJump.onclick = (e) => {
+    e.stopPropagation();
+    zoomJump.hidden = true;
+    zoomClip("/clips/" + encodeURIComponent(found.n), found.n);
+  };
+  zoomJump.hidden = false;
+}
+
+// which crop the overlay is showing, so a lookup that arrives late does not
+// offer a recording for the previous one.
+let zoomAt = 0;
+
+function zoomCrop(src, at) {
+  resetView();
+  closeZoomVideo();
+  zoomVid.hidden = true;
+  zoomImg.hidden = false;
+  zoomImg.src = src;
+  zoomEl.classList.add("on");
+  zoomAt = at || 0;
+  offerTheRecording(zoomAt);
+}
+
+function zoomClip(src, name) {
+  resetView();
+  zoomJump.hidden = true;
+  zoomImg.hidden = true;
+  zoomVid.hidden = false;
+  zoomBusy.hidden = false;
+  zoomVid.src = src;
+  zoomVid.oncanplay = () => { zoomBusy.hidden = true; };
+  zoomVid.play().catch(() => { /* autoplay policy; the controls still work */ });
+  zoomEl.classList.add("on");
+  startMarking(name);
+}
+
+// **the passage is marked while it is being watched.** what this replaces is
+// reading a clip name off a card, timing the vehicle against the player's
+// clock, and typing all of it into a shell -- three transcriptions of numbers
+// already on screen.
+//
+// `in` and `out` take the player's current time. there is no scrubbing to a
+// frame: a fragmented mp4 has no index, so `currentTime` advances with
+// playback and that is the clock there is. a second either side costs a few
+// crops of the street, which the labelling sweeps away in one key.
+let marking = {clip: "", from: null, to: null};
+
+function startMarking(name) {
+  marking = {clip: name || "", from: null, to: null};
+  markEl.hidden = !name;
+  paintMark();
+}
+
+function clockAt(secs) {
+  const whole = Math.max(0, Math.floor(secs));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+
+// `START-END` as `--dense` reads it, with an open end meaning "to the end of
+// the clip" -- which is what marking only the start is.
+function markedWindow() {
+  if (marking.from === null) return "";
+  return clockAt(marking.from) + "-" + (marking.to === null ? "" : clockAt(marking.to));
+}
+
+function paintMark() {
+  markWindow.textContent = markedWindow() || "nothing marked";
+  markSelect.disabled = marking.from === null;
+}
+
+markIn.onclick = () => { marking.from = zoomVid.currentTime; marking.to = null; paintMark(); };
+markOut.onclick = () => {
+  // an out before an in is a mis-click rather than a passage, and the server
+  // would refuse it: say so here instead of after the round trip.
+  if (marking.from !== null && zoomVid.currentTime > marking.from) marking.to = zoomVid.currentTime;
+  paintMark();
+};
+markSelect.onclick = async () => {
+  const window = markedWindow();
+  if (!window) return;
+  markSelect.disabled = true;
+  const sent = await fetch("/select", {
+    method: "POST",
+    body: JSON.stringify({n: marking.clip, window}),
+  }).catch(() => null);
+  markWindow.textContent = sent && sent.ok
+    ? `${window} selected -- \`metermate --prepare\` cuts it`
+    : "refused";
+  if (sent && sent.ok) marking.from = marking.to = null;
+};
+
+// unload rather than pause. a clip is tens of megabytes of full-resolution main
+// stream, and a paused element goes on downloading the rest of it.
+function closeZoomVideo() {
+  zoomVid.removeAttribute("src");
+  zoomVid.load();
+}
+
+function closeZoom() {
+  zoomEl.classList.remove("on");
+  zoomBusy.hidden = true;
+  zoomJump.hidden = true;
+  markEl.hidden = true;
+  zoomAt = 0;
+  closeZoomVideo();
+  // **back to the tab, so the same link can be followed twice.** assigning a hash
+  // its current value fires no event, so a notification tapped twice against an
+  // open page would open the crop once and then appear to be dead.
+  if (routeOf(location.hash).kind) go(editingRoi ? "#/roi" : "#/" + tab);
+}
+
+// ---- looking closer ----
+
+// **filling the window is the start and not the limit.** the window is usually ten
+// times the width of the crop, so the wheel is how the rest of it is reached --
+// toward wherever the cursor is, which is what makes every part of a zoomed crop
+// reachable without a second gesture to drag it about. a clip is not zoomed: it is
+// already the whole street at full resolution, and its player keeps its own use for
+// a pointer.
+const WHEEL_ZOOM = 1.2;  // one notch of a wheel
+const ZOOM_TOP = 12;     // past this a crop is out of pixels, not out of luck
+let view = {k: 1, x: 0, y: 0};
+
+// the far side of out is the crop's own pixels. below one screen pixel per pixel of
+// crop the screen is inventing rather than showing, and the blur that made a verdict
+// wrong is a property of those pixels rather than of how big they are drawn. until
+// the bytes say otherwise there is no truth to stop at, so the window is.
+function zoomFloor() {
+  return zoomImg.naturalWidth ? Math.min(1, zoomImg.naturalWidth / innerWidth) : 1;
+}
+
+function showView() {
+  // at rest there is no transform at all: an identity one still counts, and it puts
+  // a crop the size of the window on a layer of its own for nothing.
+  const still = view.k === 1 && !view.x && !view.y;
+  zoomImg.style.transform = still
+    ? "" : `translate(${view.x}px, ${view.y}px) scale(${view.k})`;
+}
+
+function resetView() {
+  view = {k: 1, x: 0, y: 0};
+  showView();
+}
+
+// the point under the cursor is `(s - t) / k` into the picture, and it stays there if
+// `t` moves by however much the box grew times where the cursor is -- which is the
+// whole reason the box is the window and the transform starts at its top left.
+function zoomBy(step, x, y) {
+  const was = view.k;
+  const k = Math.min(ZOOM_TOP, Math.max(zoomFloor(), was * step));
+  if (k === was) return;
+  view.x = x - (x - view.x) * (k / was);
+  view.y = y - (y - view.y) * (k / was);
+  view.k = k;
+  showView();
+}
+
+zoomEl.onwheel = (e) => {
+  if (zoomVid.hidden) {
+    e.preventDefault();
+    zoomBy(e.deltaY < 0 ? WHEEL_ZOOM : 1 / WHEEL_ZOOM, e.clientX, e.clientY);
+  }
+};
+
+zoomEl.onclick = closeZoom;
+// the player's own controls live inside the overlay, so a click on them must
+// not reach the backdrop that closes it. the same goes for anything else put
+// over the video: marking a passage is three clicks, and the first of them
+// closing the clip being marked is the whole feature failing.
+zoomVid.onclick = (e) => e.stopPropagation();
+markEl.onclick = (e) => e.stopPropagation();
+document.onkeydown = (e) => { if (e.key === "Escape") closeZoom(); };
+
+let tab = "live";
+
+// ---- hash links ---------------------------------------------------------
+
+// **every view is a url, and so is every crop, verdict and clip.** the page is a
+// wall of tiles and the tile worth showing somebody is one of them, so the thing
+// worth linking to is the crop rather than the tab -- a link pasted into a
+// message, a bookmark, and above all a tapped notification, which carries the
+// verdict it attached (r4.5).
+//
+// the hash is the navigation rather than a record of it: a tab button assigns it
+// and `hashchange` renders it, so a pasted link, a bookmark and a notification all
+// take the one path -- and the back button comes free, because the browser's own
+// history is what moved.
+const TABS = ["live", "crops", "verdicts", "events", "roi"];
+// a link to one thing: the tab it lives on, and how its bytes are served.
+const NAMED = {
+  crop: { tab: "crops", src: n => "/crops/" + encodeURIComponent(n) },
+  // the verdicts tab is one harvest asked for the crops stage two named, and a
+  // notified crop always carries a verdict -- so that is where a tap belongs.
+  verdict: { tab: "verdicts", src: n => "/crops/" + encodeURIComponent(n) },
+  event: { tab: "events", src: n => "/clips/" + encodeURIComponent(n) },
+};
+
+// a hash is written by hand as often as it is tapped, and a half-typed url is a
+// stray percent sign away from throwing.
+const decoded = s => {
+  try { return decodeURIComponent(s); } catch { return s; }
+};
+
+// what a hash means: the view to show, and the one thing in it to open.
+function routeOf(hash) {
+  const [kind = "", ...rest] = String(hash).replace(/^#\/?/, "").split("/");
+  const name = rest.map(decoded).join("/");
+  // `#/verdict` with nothing after it is the tab a crop would have opened from,
+  // and a hash nothing knows is the live view rather than a blank page: a
+  // mistyped link should still land somewhere a person can read.
+  const known = NAMED[kind] ? NAMED[kind].tab : (TABS.includes(kind) ? kind : "live");
+  return name && NAMED[kind]
+    ? { tab: known, kind, name }
+    : { tab: known, kind: "", name: "" };
+}
+
+// assign the hash and let `hashchange` render it: one way through the page's own
+// navigation, however the hash got there.
+function go(hash) {
+  location.hash = hash;
+}
+
+// **the url names whatever is on screen.** opening a tile leaves its link in the
+// location bar, so the thing worth sharing is copyable from wherever a person
+// happens to be looking at it. `replaceState` rather than assigning the hash: the
+// page already knows what it is showing, and routing it through the hash would
+// fetch this crop's own entry again just to draw it a second time.
+function address(kind, name) {
+  history.replaceState(null, "", `#/${kind}/${encodeURIComponent(name)}`);
+}
+
+// the overlay's content, from a link: one crop whole, or one clip playing.
+async function openNamed(kind, name) {
+  const src = NAMED[kind].src(name);
+  if (kind === "event") { zoomClip(src, name); return; }
+  // a crop's name carries the instant it was taken, but reading it back here would
+  // be a second copy of a filename grammar the harvester owns, and the instant is
+  // what lets the overlay go on to offer the recording it was taken during. so the
+  // entry is asked for: one crop, one request, and a crop the disk has since
+  // evicted answers 404 -- which is when the tab is the better answer than an
+  // overlay full of a broken image.
+  let at = 0;
+  try {
+    const got = await fetch(`/crop?n=${encodeURIComponent(name)}`);
+    if (!got.ok) return;
+    at = (await got.json()).t;
+  } catch { return; }
+  zoomCrop(src, at);
+}
+
+// render a hash. everything the links do goes through here, including the roi
+// editor -- which is the live view with the editor over it rather than a view, so
+// arriving at any other hash has to put it down.
+async function showHash(hash) {
+  const here = routeOf(hash);
+  setRoi(here.tab === "roi");
+  showTab(here.tab === "roi" ? "live" : here.tab);
+  if (here.kind) await openNamed(here.kind, here.name);
+}
+
+// nothing should be fetched for a view nobody is looking at (r8.3). the video
+// matters most: it is the main stream, so leaving it running behind another tab
+// costs about 4 mbit/s to decode frames into a hidden element.
+function wantsVideo() {
+  return tab === "live" && !document.hidden;
+}
+
+// **and it is keyed on document visibility after all.**
+//
+// it was not, and the reasoning was that browsers throttle background tabs
+// anyway so the saving was small. the saving is small. the problem is not cost.
+//
+// an mjpeg stream in an <img> has no way to drop a frame. a backgrounded window
+// stops rendering but the socket keeps filling, so frames queue in the kernel
+// and in the browser's decode queue, and on return it plays every one of them
+// in order -- it replays the time you were away, at ten frames a second, and
+// never catches up because nothing skips. a live view that is minutes behind is
+// worse than no live view, because it looks right.
+//
+// the earlier attempt tore the video down on visibility and had its own
+// teardown path to get wrong, which is how the preview once froze for minutes.
+// this one adds no path: it is the same `applyActivity` the tab buttons drive,
+// with one more reason to be inactive, so there is one implementation and the
+// tab switch exercises it constantly.
+function applyActivity() {
+  clearInterval(cropsTimer);
+  cropsTimer = null;
+  // one timer for two grids: only one of them is on screen, and the other is a
+  // listing of the same directory nobody is looking at.
+  const grid = tab === "crops" ? crops : tab === "verdicts" ? verdicts : null;
+  if (grid) {
+    grid.refresh();
+    cropsTimer = setInterval(grid.refresh, CROPS_REFRESH_MS);
+  }
+
+  clearInterval(clipsTimer);
+  clipsTimer = null;
+  if (tab === "events") {
+    loadClips();
+    clipsTimer = setInterval(loadClips, CLIPS_REFRESH_MS);
+  }
+
+  // only the live tab shows a picture, so only it can be showing a stale one.
+  // unhurried because the window opens twice a day at worst: this is a poll to
+  // catch the boundary while a page is left open across it.
+  clearInterval(streamTimer);
+  streamTimer = null;
+  if (tab === "live") {
+    showStreamState();
+    streamTimer = setInterval(showStreamState, STREAM_REFRESH_MS);
+  }
+
+  // close and reopen rather than pause and resume, for the reason in
+  // `closeVideo`: a paused element is a viewer the server will drop.
+  //
+  // all three feeds, not just the video. every one of them is counted as a
+  // viewer, and the pipeline encodes for as long as any of them is open -- so
+  // closing two of three saves nothing at all (r8.3).
+  if (wantsVideo()) {
+    openDetections();
+    openMjpeg();
+    if (videoSrc && !mp4El.getAttribute("src")) openVideo(true);
+  } else {
+    closeDetections();
+    closeMjpeg();
+    if (videoSrc) closeVideo();
+  }
+}
+
+function showTab(name) {
+  tab = name;
+  cropsEl.classList.toggle("on", name === "crops");
+  verdictsEl.classList.toggle("on", name === "verdicts");
+  eventsEl.classList.toggle("on", name === "events");
+  liveEl.style.display = name === "live" ? "" : "none";
+  statsEl.hidden = name !== "live";
+  liveControls.hidden = name !== "live" || !rawDetector;
+  boxesControl.hidden = name !== "live";
+  for (const [el, of] of [[tabLive, "live"], [tabCrops, "crops"],
+                          [tabVerdicts, "verdicts"], [tabEvents, "events"]]) {
+    el.classList.toggle("on", name === of);
+  }
+  applyActivity();
+}
+
+// the window being hidden is exactly the tab being inactive, as far as every
+// feed is concerned.
+document.addEventListener("visibilitychange", applyActivity);
+
+tabLive.onclick = () => go("#/live");
+tabCrops.onclick = () => go("#/crops");
+tabVerdicts.onclick = () => go("#/verdicts");
+tabEvents.onclick = () => go("#/events");
+
+// one handler for every way a hash arrives: a pasted link, a back button, a
+// tapped notification.
+window.onhashchange = () => showHash(location.hash);
+
+// ---- roi editor ----
+//
+// the polygon is in gate pixels, and so is the overlay canvas, so a click maps
+// straight through with no coordinate space in between to get wrong. it emits
+// toml rather than writing config: metermate is running from that file, and a
+// server that rewrites its own config while using it is a much larger idea than
+// this needs.
+const tabRoi = document.getElementById("tab-roi");
+const roiTools = document.getElementById("roi-tools");
+const roiToml = document.getElementById("roi-toml");
+const roiCount = document.getElementById("roi-count");
+// a click within this many gate pixels of a vertex grabs it instead of adding
+// one, which is the difference between adjusting a corner and doubling it.
+const GRAB_PX = 12;
+let roi = [], lines = [], editingRoi = false, drawingScale = false, dragging = -1;
+// **the overlay canvas is not the gate's frame.** it is sized to the preview
+// image -- `[preview] width`/`height`, 640x360 by default -- while the gate
+// runs at `[stream] gate_width`/`gate_height`, 640x480. the roi is read as gate
+// pixels, so an editor that emitted raw canvas coordinates compressed every
+// polygon's y by 0.75 and handed the gate a region that was not the one drawn
+// on the street. measured: a canvas of 640x360 against a 640x480 gate.
+let gateSize = null;
+// **the frame is the encoded picture's box.** the browser contains an image
+// whose shape differs from its box while the overlay canvas covers the box, so a
+// frame sized to the gate rather than to what was encoded leaves the two
+// disagreeing -- boxes above the vehicles rather than on them.
+let encodeSize = null;
+
+// canvas -> gate, for what is written out.
+function toGate([x, y]) {
+  if (!gateSize) return [x, y];
+  return [Math.round(x * gateSize[0] / cv.width), Math.round(y * gateSize[1] / cv.height)];
+}
+
+// gate -> canvas, for what is drawn.
+function toCanvas([x, y]) {
+  if (!gateSize) return [x, y];
+  return [Math.round(x * cv.width / gateSize[0]), Math.round(y * cv.height / gateSize[1])];
+}
+const drawRoiBtn = document.getElementById("draw-roi");
+const drawScaleBtn = document.getElementById("draw-scale");
+
+// clamped to the frame: dragging a vertex past the edge of the canvas produced
+// negative coordinates, which are not gate pixels and stopped the config
+// loading outright.
+function roiFromEvent(e) {
+  const r = cv.getBoundingClientRect();
+  const clamp = (v, hi) => Math.max(0, Math.min(hi, Math.round(v)));
+  return toGate([
+    clamp((e.clientX - r.left) / r.width * cv.width, cv.width),
+    clamp((e.clientY - r.top) / r.height * cv.height, cv.height),
+  ]);
+}
+
+function nearestVertex(at) {
+  let best = -1, bestD = GRAB_PX;
+  roi.forEach(([x, y], i) => {
+    const d = Math.hypot(x - at[0], y - at[1]);
+    if (d < bestD) { bestD = d; best = i; }
+  });
+  return best;
+}
+
+function showRoi() {
+  roiCount.textContent = drawingScale
+    ? (lines.length
+        ? `${lines.length} line${lines.length > 1 ? "s" : ""} -- ` +
+          lines.map(l => `${Math.round(lineLength(l))}px`).join(", ")
+        : "drag along a vehicle to say how big one is there")
+    : (roi.length < 3
+        ? `${roi.length} points -- at least 3 to bound anything`
+        : `${roi.length} points`);
+  // both, always: they are one config section, and copying half of it is how
+  // the other half gets dropped on the next paste.
+  roiToml.textContent = "[gate]\nroi = ["
+    + roi.map(p => `[${p[0]}, ${p[1]}]`).join(", ") + "]"
+    + "\nperspective = ["
+    + lines.map(([a, b]) => `[[${a[0]}, ${a[1]}], [${b[0]}, ${b[1]}]]`).join(", ") + "]";
+}
+
+function lineLength([a, b]) {
+  return Math.hypot(a[0] - b[0], a[1] - b[1]);
+}
+
+// drawn from `draw()` so it survives the next frame rather than being cleared
+// by it, and only while the roi tab is open: the rest of the time it is a
+// second orange outline over a street already carrying motion regions and
+// detection boxes, and it never changes, so it is clutter on every frame to
+// answer a question asked once.
+function drawRoi() {
+  if (!editingRoi) return;
+  ctx.save();
+  if (roi.length) {
+    // dimmed while the perspective lines are being drawn, so the thing being
+    // worked on is the thing that stands out.
+    ctx.globalAlpha = drawingScale ? 0.35 : 1;
+    ctx.strokeStyle = "#f0a020";
+    ctx.fillStyle = "rgba(240,160,32,0.15)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    roi.map(toCanvas).forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+    ctx.closePath();
+    if (roi.length > 2) ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#f0a020";
+    if (!drawingScale) for (const [x, y] of roi.map(toCanvas)) ctx.fillRect(x - 4, y - 4, 8, 8);
+  }
+  // a perspective line is drawn as the vehicle it stands for: a bar of its
+  // length, with the length written beside it, because that number is the
+  // whole content of the line.
+  ctx.globalAlpha = drawingScale ? 1 : 0.35;
+  ctx.strokeStyle = "#2ee6d6";
+  ctx.fillStyle = "#2ee6d6";
+  ctx.lineWidth = 3;
+  ctx.font = "12px ui-monospace, monospace";
+  for (const line of lines) {
+    const [a, b] = line.map(toCanvas);
+    ctx.beginPath();
+    ctx.moveTo(a[0], a[1]);
+    ctx.lineTo(b[0], b[1]);
+    ctx.stroke();
+    for (const [x, y] of [a, b]) ctx.fillRect(x - 3, y - 3, 6, 6);
+    // the length written is in gate pixels, which is the number that means
+    // something -- it is what the gate will compare a region against.
+    ctx.fillText(`${Math.round(lineLength(line))}px`,
+      (a[0] + b[0]) / 2 + 8, (a[1] + b[1]) / 2 - 4);
+  }
+  ctx.restore();
+}
+
+cv.addEventListener("pointerdown", e => {
+  if (!editingRoi) return;
+  const at = roiFromEvent(e);
+  cv.setPointerCapture(e.pointerId);
+  if (drawingScale) {
+    // a line is dragged rather than clicked: its length is the measurement, so
+    // there is no such thing as a line placed by one click. grabbing an end
+    // adjusts an existing one instead of starting another on top of it.
+    const [line, end] = nearestEnd(at);
+    if (line >= 0) { dragging = [line, end]; }
+    else { lines.push([at, at.slice()]); dragging = [lines.length - 1, 1]; }
+  } else {
+    dragging = nearestVertex(at);
+    if (dragging < 0) { roi.push(at); dragging = roi.length - 1; }
+  }
+  showRoi();
+});
+cv.addEventListener("pointermove", e => {
+  if (!editingRoi || dragging < 0 && !Array.isArray(dragging)) return;
+  if (drawingScale && Array.isArray(dragging)) {
+    lines[dragging[0]][dragging[1]] = roiFromEvent(e);
+  } else if (!drawingScale && dragging >= 0) {
+    roi[dragging] = roiFromEvent(e);
+  }
+  showRoi();
+});
+cv.addEventListener("pointerup", () => {
+  // a line that was clicked rather than dragged says a vehicle there is zero
+  // pixels tall, which the config refuses. drop it rather than emit it.
+  if (drawingScale && Array.isArray(dragging) && lineLength(lines[dragging[0]]) < 4) {
+    lines.splice(dragging[0], 1);
+    showRoi();
+  }
+  dragging = -1;
+});
+
+// which end of which line is under the pointer, or -1.
+function nearestEnd(at) {
+  let best = [-1, 0], bestD = GRAB_PX;
+  lines.forEach((line, i) => line.forEach(([x, y], end) => {
+    const d = Math.hypot(x - at[0], y - at[1]);
+    if (d < bestD) { bestD = d; best = [i, end]; }
+  }));
+  return best;
+}
+
+document.getElementById("roi-undo").onclick = () => {
+  if (drawingScale) lines.pop(); else roi.pop();
+  showRoi();
+};
+document.getElementById("roi-clear").onclick = () => {
+  if (drawingScale) lines = []; else roi = [];
+  showRoi();
+};
+drawRoiBtn.onclick = () => setDrawing(false);
+drawScaleBtn.onclick = () => setDrawing(true);
+
+function setDrawing(scale) {
+  drawingScale = scale;
+  drawRoiBtn.classList.toggle("on", !scale);
+  drawScaleBtn.classList.toggle("on", scale);
+  showRoi();
+}
+const roiCopy = document.getElementById("roi-copy");
+roiCopy.onclick = () => copyText(roiToml.textContent, roiCopy);
+
+// roi is the live view with the editor over it, which is why turning it on shows
+// the live view and turning it off leaves whatever is showing alone: a link to
+// `#/roi` and the tab button have to arrive by the same door.
+function setRoi(on) {
+  if (on === editingRoi) return;
+  editingRoi = on;
+  // the live video stays running underneath: a polygon is drawn against the
+  // street, and drawing it against a frozen frame is how it ends up misaligned.
+  if (on) showTab("live");
+  tabRoi.classList.toggle("on", on);
+  roiTools.hidden = !on;
+  // the overlay is click-through the rest of the time, so that dragging the
+  // video or selecting text still works.
+  cv.style.pointerEvents = on ? "auto" : "none";
+  cv.style.cursor = on ? "crosshair" : "";
+  // the overlay is only repainted when a detection arrives, so leaving it
+  // would strand the polygon on screen for as long as the street is quiet --
+  // after the tab it belongs to has been closed.
+  if (!on) ctx.clearRect(0, 0, cv.width, cv.height);
+  showRoi();
+}
+
+tabRoi.onclick = () => go(editingRoi ? "#/live" : "#/roi");
+
+// ---- the size of the picture ----
+
+// **the frame takes the window it is left with**, and the css does the arithmetic
+// because "as much width as there is, of a shape nobody knows until a stream
+// arrives" is a css question. what it cannot know is what the page spends around
+// the picture: the header above it, the roi editor and the legend below, each a
+// different height on every window, on every rotation, and as soon as the toml
+// gains a line. that much is measured and handed over as `--room`.
+let room = -1;
+function fit() {
+  // a hidden live view reports no heights at all, and nothing is not a number to
+  // subtract. it is measured again the moment it is next resized, which is when it
+  // is next shown.
+  if (!stage.offsetParent) return;
+  const spent = stage.offsetTop + roiTools.offsetHeight + legend.offsetHeight;
+  if (room === spent) return;
+  room = spent;
+  htmlEl.style.setProperty("--room", `${spent}px`);
+}
+
+// the observer is for everything that changes inside the live view, which is most
+// of it; the resize is for the one thing that changes nothing inside it, which is
+// the height the picture has been given.
+new ResizeObserver(fit).observe(liveEl);
+window.addEventListener("resize", fit);
+</script>

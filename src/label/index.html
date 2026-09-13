@@ -1,0 +1,739 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>metermate labelling</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<style>
+ body{background:#111;color:#ddd;font:13px system-ui,sans-serif;margin:0;padding:8px}
+ /* each pool answers a different question, and mixing up which one you are in
+    is how a false positive rate ends up measured on the ranked pool. so they
+    are told apart by colour and by a rule down the side, not only by a word. */
+ .pool{border-left:4px solid var(--accent);background:var(--tint);
+       border-radius:0 5px 5px 0;margin:22px 0 0;padding:2px 8px 8px}
+ .pool.random{--accent:#4a7fd0;--tint:#14181f}
+ .pool.seed  {--accent:#c9922a;--tint:#1c1810}
+ .pool.ranked{--accent:#3f9a5c;--tint:#121b15}
+ .pool.review{--accent:#a06bc4;--tint:#191320}
+ .pool.alert {--accent:#d4564a;--tint:#201413}
+ /* the tab carries its pool's colour even when it is not the one you are on, so
+    the bar is a legend for the rule down the side of whatever is below it. */
+ #tabs button{background:#2a2a2a;color:#aaa;font-weight:400;padding:4px 12px;
+              border-bottom:3px solid var(--accent);border-radius:3px 3px 0 0}
+ #tabs button.on{background:var(--tint);color:#fff;font-weight:600}
+ #tabs button .n{color:#777;font-weight:400;margin-left:5px}
+ #tabs button.on .n{color:#aaa}
+ #tabs .random{--accent:#4a7fd0;--tint:#14181f}
+ #tabs .seed  {--accent:#c9922a;--tint:#1c1810}
+ #tabs .ranked{--accent:#3f9a5c;--tint:#121b15}
+ #tabs .review{--accent:#a06bc4;--tint:#191320}
+ #tabs .alert {--accent:#d4564a;--tint:#201413}
+ #decided{vertical-align:-1px;margin-right:3px}
+ label.switch{color:#aaa;cursor:pointer;user-select:none}
+ label.switch.off{color:#555;cursor:default}
+ #decided-n.zero{color:#666}
+ .none{color:#777;padding:6px 2px;max-width:60em}
+ h2{font-size:13px;font-weight:600;color:var(--accent);margin:8px 2px 2px}
+ h2 .why{color:#888;font-weight:400}
+ h2 .count{color:#bbb;font-weight:400;float:right}
+ .pool h3{font-size:12px;font-weight:400;color:#bbb;margin:12px 2px 4px}
+ .foot{display:flex;gap:10px;margin:8px 2px 2px;padding-top:8px;
+       border-top:1px solid #2a2a2a}
+ .foot button{background:var(--accent);color:#08121b;font-weight:600;padding:4px 12px}
+ .foot button:disabled{background:#3a3a3a;color:#888}
+ .foot button.undo{background:#633;color:#fcc;font-weight:400}
+ /* two deliberate rows rather than one that wraps at whatever width it runs out
+    of: what is being labelled and how much of it on top, where to look and how
+    to drive it underneath. */
+ #bar{position:sticky;top:0;background:#111;padding:6px 4px 0;border-bottom:1px solid #333;
+      z-index:9}
+ #bar .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+ #bar .row.tabs{align-items:flex-end;margin-top:6px}
+ #bar .row.tabs .switch,#bar .legend{padding-bottom:4px}
+ #bar .legend{color:#999}
+ #bar .grow{flex:1}
+ .grid{display:flex;flex-wrap:wrap;gap:6px}
+ .tile{border:3px solid #333;border-radius:3px;padding:2px;background:#1a1a1a;cursor:pointer}
+ .tile img{display:block;max-width:220px;max-height:180px}
+ .tile .meta{font-size:10px;color:#777;max-width:220px;overflow:hidden;white-space:nowrap}
+ .tile .v{color:#e08078;font-weight:600}
+ /* small and quiet: the tile is for judging a crop, and the name is only
+    wanted when something else needs it. */
+ .tile .copy{background:#2a2a2a;color:#999;font-weight:400;font-size:10px;
+             padding:1px 6px;margin-top:2px}
+ .tile .copy:hover{color:#ddd}
+ .yes{border-color:#3c3}.no{border-color:#a33}.unclear{border-color:#cc3}
+ .cursor{outline:3px solid #fff;outline-offset:2px}
+ kbd{background:#333;border-radius:3px;padding:1px 4px}
+ button{background:#2a4;border:0;color:#061;font:inherit;font-weight:600;
+        border-radius:3px;padding:4px 14px;cursor:pointer}
+ button:disabled{background:#444;color:#888;cursor:default}
+ /* the report is a read, not a step in the loop: it is long, it is worth
+    sitting with, and the grid it was measured from should still be there when
+    it is dismissed rather than pushed down the page by it. */
+ #train{position:fixed;inset:0;z-index:20;display:none;overflow:auto;
+        background:rgba(0,0,0,.72);padding:26px 18px}
+ #train.open{display:block}
+ #train .sheet{position:relative;max-width:78em;margin:0 auto;padding:12px 16px 14px;
+        background:#161616;border:1px solid #333;border-radius:4px;
+        white-space:pre-wrap;font-family:ui-monospace,monospace;
+        font-size:12px;line-height:1.45}
+ #train .close{position:absolute;top:9px;right:10px;background:#333;color:#ccc;
+        font-weight:400;padding:3px 10px}
+ #train .void{color:#f77;font-weight:600}
+ #train .note{color:#cc3}
+ #train h3{color:#8bf;font-size:12px;margin:10px 0 4px}
+ #train table{border-collapse:collapse;font-size:12px}
+ #train td,#train th{padding:1px 12px 1px 0;text-align:right}
+ #train th{color:#777;font-weight:400}
+ #train tr.best td{color:#3c3}
+</style>
+
+<div id="bar">
+ <div class="row">
+  <b>__SUBJECT__</b>
+  <span id="totals"></span>
+  <span class="grow"></span>
+  <span id="stats"></span>
+  <button id="more" onclick="more(this)" title="another screenful of crops, without measuring anything">more</button>
+  <button id="go" onclick="train()">train</button>
+ </div>
+ <div class="row tabs">
+  <span id="tabs"></span>
+  <label class="switch" id="decided-switch"><input type="checkbox" id="decided" checked
+   onchange="showDecided(this.checked)">already decided <span id="decided-n"></span></label>
+  <span class="grow"></span>
+  <span class="legend"><kbd>y</kbd> yes &middot; <kbd>n</kbd> no &middot;
+  <kbd>u</kbd> unclear &middot; <kbd>x</kbd> clear &middot; <kbd>j</kbd>/<kbd>k</kbd> move &middot;
+  <kbd>1</kbd>-<kbd>5</kbd> tab &middot; <kbd>t</kbd> train</span>
+ </div>
+</div>
+<div id="train" onclick="if (event.target.id === 'train') showTrain(false)">
+ <div class="sheet">
+  <button class="close" onclick="showTrain(false)">close</button>
+  <div id="train-body"></div>
+ </div>
+</div>
+<div id="out"></div>
+
+<script>
+const SUBJECT = "__SUBJECT__";
+const NEG = "other", UNCLEAR = "unclear";
+// one tab per pool, under the words a person navigates by rather than the slug
+// `Via::slug` writes. **which pool a crop came from decides what may be
+// measured on it** -- a false positive rate is only honest on the random one --
+// and stacked down one scroll that boundary is a heading you went past. a tab
+// cannot be scrolled past.
+const TABS = [
+  ["random", "random"],
+  ["seed", "nearby"],
+  ["ranked", "most likely"],
+  ["review", "second look"],
+  ["alert", "verdicts"],
+];
+const POOLS = TABS.map(([via]) => via);
+// the review pool is already decided, so there is nothing in it to sweep; a
+// "mark the remaining" button there would offer to overwrite the answers it is
+// asking you to check. the verdicts pool is the opposite case: on the first
+// evening stage two fired, every crop it named was wrong, so rejecting the
+// screenful is the usual answer rather than an occasional one.
+const SWEEPABLE = ["random", "seed", "ranked", "alert"];
+let tab = "random", decided = true;
+let items = [], at = 0, totals = null;
+
+// what belongs on screen. pure, so the rule a tab rests on can be checked
+// without a browser -- see `tests/e2e/test_learn.py`.
+//
+// it turns on `decided`, which is what a crop was *drawn* as, not what it is
+// now. a decision made since the pool was drawn stays on screen, so a misclick
+// can be clicked back instead of vanishing under the pointer; the screen
+// collapses to the work left the next time the pool is drawn.
+function shown(list, via, withDecided) {
+  return list.filter(it => it.via === via && (withDecided || !it.decided));
+}
+
+// how many crops the switch is keeping off this pool, or would if it were off.
+//
+// three of the five pools are built from the undecided crops alone -- random
+// and ranked come off the unlabelled set, and the neighbour pool skips whatever
+// already has an answer -- so on a fresh page the switch changes not one tile
+// on them. a zero beside it says that is the pool's state rather than the
+// control being dead.
+function hiding(list, via) {
+  return list.filter(it => it.via === via && it.decided).length;
+}
+
+// the second look pool is crops that already have an answer -- that is what the
+// pool *is*, one put back because the answer may be wrong. so the switch has
+// nothing to hide there, and letting it apply would empty the tab and read as
+// having broken the page. it is held on and greyed out instead.
+const ALWAYS_DECIDED = ["review"];
+
+function wantsDecided(via, on) {
+  return ALWAYS_DECIDED.includes(via) || on;
+}
+
+// the second look runs both ways, and which way a crop is disputed is the
+// question it asks, so each direction gets its own heading. grouped by what a
+// crop was labelled when the pool was drawn, so one flipped by a click stays
+// under the heading it was offered under.
+function lookGroups(list) {
+  return [
+    ["labelled " + SUBJECT + ", voting with the negatives",
+     list.filter(it => it.wasTruth === SUBJECT)],
+    ["labelled " + NEG + ", voting with " + SUBJECT,
+     list.filter(it => it.wasTruth === NEG)],
+    // nothing else ever offers these back: the measurement leaves them out of
+    // both classes, so they sit in labels.txt until something asks again.
+    ["marked " + UNCLEAR + ", now voting with " + SUBJECT,
+     list.filter(it => it.wasTruth === UNCLEAR)],
+  ];
+}
+
+// whether this pool gets a sweep button at all. a pool holding nothing must not
+// offer to mark it: splitting the pools into tabs means the one you are on is
+// always drawn, where before an empty pool was never built, and the button came
+// along with the empty grid.
+function offersSweep(list, via) {
+  return SWEEPABLE.includes(via) && list.some(it => it.via === via);
+}
+
+const pct = v => v === 0 ? "0%" : (v * 100).toFixed(v < 0.1 ? 2 : 0) + "%";
+const sign = v => (v >= 0 ? "+" : "") + v.toFixed(3);
+// what one click means. on the verdicts tab the answer is almost always
+// "wrong", so that is what a click writes; on the other four it is "this is
+// one". a second click takes it back either way.
+const clicked = it => tab === "alert"
+  ? (it.truth === NEG ? SUBJECT : NEG)
+  : (it.truth === SUBJECT ? NEG : SUBJECT);
+
+// **not `navigator.clipboard`.** it is only defined in a secure context, and
+// this page is served over plain http on the deployment's own address -- so on
+// the one machine where it is used the button would silently do nothing.
+// `execCommand` is deprecated and works there.
+function copyName(name, button) {
+  const held = document.createElement("textarea");
+  held.value = name;
+  document.body.appendChild(held);
+  held.select();
+  const copied = document.execCommand("copy");
+  document.body.removeChild(held);
+  // said on the button itself: a copy that failed and a copy that worked look
+  // identical otherwise, and the clipboard cannot be read back to check.
+  button.textContent = copied ? "copied" : "select it";
+  setTimeout(() => { button.textContent = "copy"; }, 1200);
+}
+
+// every count on screen is recomputed here rather than written once when the
+// queue is drawn. a button that still offers to mark 200 crops after five have
+// just been decided is telling you the wrong number about a destructive action.
+function paint() {
+  document.querySelectorAll(".tile").forEach(d => {
+    const it = items[d.dataset.i];
+    const cls = it.truth === SUBJECT ? " yes" : it.truth === NEG ? " no"
+      : it.truth === UNCLEAR ? " unclear" : "";
+    d.className = "tile" + cls + (+d.dataset.i === at ? " cursor" : "");
+  });
+  // the precision of the verdicts is a property of the pool rather than of the
+  // screen, so the switch that hides the judged ones must not move it.
+  const here = items.filter(i => i.via === tab);
+  if (tab === "alert") {
+    const judged = here.filter(i => i.truth && i.truth !== UNCLEAR);
+    const right = judged.filter(i => i.truth === SUBJECT).length;
+    document.getElementById("stats").textContent = judged.length
+      ? "precision " + right + "/" + judged.length + " = " +
+        pct(right / judged.length) + " of the verdicts you have judged"
+      : here.length + " verdicts, none judged yet -- reject the wrong ones and "
+        + "precision stops being an assumption";
+  } else {
+    const done = here.filter(i => i.truth).length;
+    const yes = here.filter(i => i.truth === SUBJECT).length;
+    document.getElementById("stats").textContent =
+      done + "/" + here.length + " decided in this pool, " + yes + " " + SUBJECT;
+  }
+
+  // on a tab where the switch does not apply it is greyed and says nothing,
+  // rather than reporting a count it is not acting on.
+  const applies = !ALWAYS_DECIDED.includes(tab);
+  const settled = hiding(items, tab);
+  document.getElementById("decided").disabled = !applies;
+  document.getElementById("decided-switch").className = applies ? "switch" : "switch off";
+  const beside = document.getElementById("decided-n");
+  beside.textContent = applies ? "(" + settled + ")" : "";
+  beside.className = applies && !settled ? "zero" : "";
+
+  // per pool: how much is left in it, and what the sweep would actually write.
+  // the tab counts follow the switch, so with the decided ones hidden the
+  // number on a tab is the work left in it.
+  POOLS.forEach(via => {
+    const n = document.getElementById("n-" + via);
+    if (n) n.textContent = shown(items, via, wantsDecided(via, decided)).length;
+    const pool = items.filter(x => x.via === via);
+    if (!pool.length) return;
+    const left = pool.filter(x => !x.truth).length;
+    const count = document.getElementById("count-" + via);
+    if (count) count.textContent = left + " of " + pool.length + " still undecided";
+    const sweep = document.getElementById("sweep-" + via);
+    if (sweep) {
+      sweep.textContent = left
+        ? "mark the remaining " + left + " not " + SUBJECT
+        : "all " + pool.length + " decided";
+      sweep.disabled = !left;
+    }
+  });
+
+  // and the whole harvest, adjusted as decisions are made so it does not lag a
+  // screenful behind the thing it is counting.
+  const t = totals;
+  if (t) {
+    const extra = items.filter(i => i.truth && !i.wasLabelled).length;
+    document.getElementById("totals").textContent =
+      t.total.toLocaleString() + " crops · " + (t.labelled + extra).toLocaleString() +
+      " labelled · " + (t.remaining - extra).toLocaleString() + " to go · " +
+      (t.subject + items.filter(i => i.truth === SUBJECT && !i.wasSubject).length) +
+      " " + SUBJECT;
+  }
+}
+
+function draw() {
+  paint();
+  const cur = document.querySelector(".cursor");
+  if (cur) cur.scrollIntoView({block: "nearest"});
+}
+
+// `keyboard` decides whether the page is allowed to move. working through the
+// grid with the keys wants the cursor followed; clicking a tile does not, since
+// the thing you just decided is already under the pointer and scrolling to the
+// next one takes it out from under you.
+// the cursor moves through what is on screen rather than through the queue:
+// `items` still holds all five pools, and the other four are behind tabs.
+function move(delta) {
+  const here = shown(items, tab, wantsDecided(tab, decided));
+  if (!here.length) return;
+  const i = here.indexOf(items[at]);
+  at = items.indexOf(here[Math.min(Math.max(i + delta, 0), here.length - 1)]);
+}
+
+async function label(truth, keyboard) {
+  const it = items[at];
+  if (!it || it.via !== tab) return;
+  // a crop can sit in two pools at once -- a verdict is in the random sample
+  // too if the hash put it there -- so every tile of it follows the decision
+  // rather than only the one under the cursor.
+  items.forEach(x => { if (x.n === it.n) x.truth = truth; });
+  await fetch("/label", {method: "POST", body: it.n + " " + (truth || "none") + " " + it.via});
+  if (keyboard) { move(1); draw(); } else paint();
+}
+
+function summary(s) {
+  return s ? s.mean.toFixed(3) + "  (median " + s.median.toFixed(3) + ", iqr " +
+    s.lo.toFixed(3) + "-" + s.hi.toFixed(3) + ", n=" + s.n + ")" : "n/a";
+}
+
+// one row of a sweep. only rows of the curve the operating point is chosen from
+// can be saved: a margin is shipped with that curve's numbers beside it.
+function sweepRow(r, s, best, saveable) {
+  return "<tr class='" + (best ? "best" : "") + "'><td>" + sign(s.margin) +
+    "<td>" + s.passages + "/" + r.passages.length + " = " + pct(s.passage_recall) +
+    "<td>" + pct(s.crop_recall) + "<td>" + pct(s.fpr) +
+    "<td>" + s.per_hour.toFixed(1) + "<td>" + s.alerts_per_hour.toFixed(1) +
+    (saveable ? "<td><button onclick='saveMargin(" + s.margin + ")'>use</button>" : "") +
+    "</tr>";
+}
+
+function sweepTable(r) {
+  // the row the server chose rather than one recomputed here: `--train` picks
+  // over the near curve when there is one, and a page that picked its own
+  // "best" over every crop could light up a row `--train` would never write.
+  const head = "<tr><th>margin<th>passages<th>crops<th>fpr<th>crops/hr<th>alerts/hr";
+  const best = r.decision.find(s => s.margin === r.operating_margin);
+  const rule = "passages: the share of held-out passages an alert fires on, counting " +
+    r.confirm_m + " of " + r.confirm_n + " consecutive crops agreeing as [track] confirm_m " +
+    "and confirm_n do. crops: the share of their individual crops above the margin, always " +
+    "the lower of the two, because a passage fires on its best few frames. fpr is per crop, " +
+    "over the street.\n";
+  let h = rule + (r.curve === "near"
+    ? "over crops at least 220px on both sides, which is the curve a margin is chosen from:\n"
+    : "") +
+    "<table>" + head + "<th></tr>" +
+    r.decision.map(s => sweepRow(r, s, s === best, true)).join("") + "</table>" +
+    (best ? "\nhighlighted: margin " + sign(best.margin) + ", what --train writes, keeps " +
+      pct(best.passage_recall) + " of passages at " + best.alerts_per_hour.toFixed(1) +
+      " false alerts an hour. \"use\" writes trained/" + SUBJECT + "/ at any row instead."
+     : "\nno margin keeps 80% of passages: the references do not separate well enough " +
+       "to pick an operating point from. \"use\" can still write any row.");
+  if (r.curve === "near") {
+    h += "\n\nevery crop, for comparison:\n<table>" + head + "</tr>" +
+      r.sweep.map(s => sweepRow(r, s, false, false)).join("") + "</table>";
+  }
+  return h + '\n<span id="train-saved"></span>';
+}
+
+// ship the margin a person picked. the pipeline reads trained/ when it starts,
+// so it takes effect on a restart, and the page says which directory it wrote.
+async function saveMargin(margin) {
+  const r = await (await fetch("/save", {method: "POST", body: String(margin)})).json();
+  document.getElementById("train-saved").innerHTML = r.error
+    ? '<span class="void">' + r.error + "</span>"
+    : "wrote " + r.wrote + " at margin " + sign(r.margin) + ": " + r.passages +
+      " passages, " + pct(r.passage_recall) + " recall, " + pct(r.fpr) +
+      " fpr. restart metermate to use it.";
+}
+
+// the report is shown over the grid and dismissed, rather than inserted above
+// it. `showTrain(false)` is the only way out, so the keys that label a crop are
+// held while it is open -- see `document.onkeydown`.
+function showTrain(open) {
+  document.getElementById("train").className = open ? "open" : "";
+}
+
+function trainOpen() {
+  return document.getElementById("train").className === "open";
+}
+
+function render(r) {
+  const box = document.getElementById("train-body");
+  showTrain(true);
+  if (r.error) { box.innerHTML = '<span class="void">' + r.error + "</span>"; return; }
+
+  const refs = r.passages.filter(p => p.reference).length;
+  let h = r.n_labelled + " crops labelled " + r.subject + ", grouped into " +
+    r.passages.length + " passages (" + refs + " reference, " +
+    (r.passages.length - refs) + " held out), against " + r.n_negatives + " negatives.\n" +
+    "the harvest runs at " + r.per_hour.toFixed(0) + " crops/hour, which is what an fpr costs.";
+
+  h += "<h3>separation</h3>" +
+    r.subject + " to " + r.subject + "   " + summary(r.self_self) + "\n" +
+    "other to other      " + summary(r.other_other) + "\n" +
+    r.subject + " to other      " + summary(r.self_other) + "\n" +
+    "gap " + sign(r.gap) + "   (go-4, web references: " +
+    sign(r.go4.self - r.go4.other) + ")";
+
+  h += "<h3>passages</h3>";
+  r.passages.forEach((p, i) => {
+    h += String(i + 1).padStart(3) + "  " + (p.reference ? "reference" : "held out ") +
+      "  " + String(p.crops).padStart(2) + " crops over " + p.span_s.toFixed(1) +
+      "s  " + String(p.px || 0).padStart(4) + "px  best " +
+      (p.best >= 0 ? "+" : "") + p.best.toFixed(4) + "   " + p.first + "\n";
+  });
+
+  // one recall over a mixed set averages two regimes. stage 1 already has a
+  // measured floor in apparent pixels; stage 2 has its own and it is far higher.
+  const near = r.passages.filter(p => (p.px || 0) >= 220);
+  const far = r.passages.filter(p => (p.px || 0) < 220);
+  if (near.length && far.length) {
+    const fires = set => set.filter(p => p.best > 0).length;
+    h += "<h3>by apparent size</h3>" +
+      "220px and over   " + fires(near) + "/" + near.length + " score above the negatives\n" +
+      "under 220px      " + fires(far) + "/" + far.length + " score above the negatives\n" +
+      "a crop stretched to clip's 224px square from well under it arrives as mush.\n" +
+      "the two halves are different questions; a single recall averages them.";
+  }
+
+  if (r.fatal.length) {
+    h += '<h3>the numbers below are void</h3><span class="void">' + r.fatal.join("\n") + "</span>";
+  }
+  h += "<h3>" + (r.leave_one_out
+    ? "recall, leaving one passage out at a time" : "recall on held-out passages") +
+    "</h3>" + sweepTable(r);
+
+  if (r.alerts) {
+    h += "<h3>alerts</h3>" + r.alerts + " crops fire at margin " + sign(r.alert_margin) +
+      ".\nthe verdicts tab lists them; labelling them turns the false positive rate\n" +
+      "into a measured precision instead of an assumption.";
+  }
+  const odd = (r.odd || []).filter(o => o.excluded);
+  if (odd.length) {
+    h += "<h3>least like the other " + r.subject + "s</h3>" +
+      "either a mislabel, or a crop the subject is in but is not *of* -- another\n" +
+      "vehicle filling the frame with a sliver of " + r.subject + " at the edge. the\n" +
+      "label can be right and the vector still wrong, so these are kept out of the\n" +
+      "references either way.\n" +
+      odd.map(o => "  " + o.mean.toFixed(3) + "  " + o.n).join("\n");
+  }
+  if (r.screen.length) {
+    h += "<h3>nearest unlabelled crops</h3>" +
+      "worth a look whatever they are labelled; contamination concentrates here.\n" +
+      r.screen.slice(0, 8).join("\n");
+  }
+  if (r.caveats.length) {
+    h += '<h3>notes</h3><span class="note">' +
+      r.caveats.map(c => "- " + c).join("\n") + "</span>";
+  }
+  box.innerHTML = h;
+}
+
+// marks only the *unlabelled* crops of one pool, so yesses picked out first
+// survive it, and only that pool, so the ranked one -- where the examples
+// actually are -- is not buried along with the random one.
+//
+// the tiles are recoloured where they sit rather than the queue being rebuilt.
+// a rebuild would drop you back at the top of a few hundred crops you had just
+// scrolled through, which for a button you press *at the bottom* of a set is
+// the worst possible moment to move the page.
+function applyLocally(names, truth) {
+  const touched = new Set(names);
+  items.forEach(it => {
+    if (touched.has(it.n)) it.truth = truth;
+  });
+  // with the decided ones hidden, a sweep collapsing the pool to what is left
+  // is the whole reason to press it, so that case redraws. with them shown the
+  // argument above holds and the tiles are recoloured where they sit.
+  if (wantsDecided(tab, decided)) paint(); else render_queue();
+}
+
+async function sweepPool(via) {
+  const r = await (await fetch("/sweep", {method: "POST", body: via})).json();
+  applyLocally(r.names, NEG);
+  const undo = document.getElementById("undo-" + via);
+  if (undo) {
+    undo.textContent = "undo (" + r.swept + ")";
+    undo.style.display = r.swept ? "" : "none";
+  }
+}
+
+async function undoSweep() {
+  const r = await (await fetch("/undo", {method: "POST"})).json();
+  applyLocally(r.names, null);
+  POOLS.forEach(via => {
+    const undo = document.getElementById("undo-" + via);
+    if (undo) undo.style.display = "none";
+  });
+}
+
+// **another screenful, without measuring anything.** the queue is a screenful of a
+// harvest that keeps growing while the page is open, and the only way back to the rest
+// of it was the train button beside this one, which also runs the embedder over the
+// whole harvest, measures every label, and reports a curve nobody asked for.
+async function more(b) {
+  const said = b.textContent;
+  b.disabled = true;
+  // the refresh may be embedding crops it has never seen, which takes seconds rather
+  // than nothing -- and a button that looks dead while it is working gets pressed again.
+  b.textContent = "reading...";
+  try {
+    await load(await (await fetch("/refresh", {method: "POST"})).json());
+  } finally {
+    b.textContent = said;
+    b.disabled = false;
+  }
+}
+
+async function train() {
+  const go = document.getElementById("go");
+  go.disabled = true;
+  go.textContent = "measuring ...";
+  try {
+    render(await (await fetch("/train", {method: "POST"})).json());
+    // training really does change the queue, so this one has to rebuild. it
+    // still should not move the page under you: the report is at the top and
+    // that is where you are looking.
+    const y = typeof window === "undefined" ? 0 : window.scrollY;
+    await load();
+    if (typeof window !== "undefined") window.scrollTo(0, y);
+  } finally {
+    go.disabled = false;
+    go.textContent = "train";
+  }
+}
+
+document.onkeydown = e => {
+  const k = e.key.toLowerCase();
+  // the report covers the grid, so the labelling keys must not reach through
+  // it: pressing `n` while reading a number about negatives would otherwise
+  // mark whatever crop the cursor had been left on, out of sight.
+  if (trainOpen()) {
+    if (k === "escape") { showTrain(false); e.preventDefault(); }
+    return;
+  }
+  if (k === "t") train();
+  else if (k === "y") label(SUBJECT, true);
+  else if (k === "n") label(NEG, true);
+  else if (k === "u") label(UNCLEAR, true);
+  else if (k === "x") label(null, true);
+  else if (k === "j" || k === "arrowright") { move(1); draw(); }
+  else if (k === "k" || k === "arrowleft") { move(-1); draw(); }
+  else if (k >= "1" && k <= String(TABS.length)) showTab(TABS[+k - 1][0]);
+  else return;
+  e.preventDefault();
+};
+
+const HEADINGS = {
+  random: ['random sample',
+    'the only pool a false positive rate is measured on'],
+  seed: ['next to a known ' + SUBJECT,
+    'these complete a passage, which is the unit of an example'],
+  ranked: ['most like the known ones',
+    'finds the next ones fast; never used for a rate'],
+  alert: ['what the classifier called a ' + SUBJECT,
+    'the name a crop was saved under is evidence of what fired, never a label -- '
+    + 'reject the wrong ones and they lead the negative set'],
+  // **a score is a reason to look, not a verdict.** it is how much more the crop
+  // votes with the opposite class than with its own, and the top of each
+  // direction is offered whether or not anything is wrong.
+  review: ['possible mislabels',
+    'labelled crops the classifier would vote the other way, most disputed '
+    + 'first. change a label only if the crop is actually wrong'],
+};
+
+// what a pool looks like once there is nothing in it to show. the review pool
+// is the case worth spelling out: every crop in it is decided by definition, so
+// hiding the decided ones empties it, and an empty grid with no reason given
+// reads as a broken tab.
+const EMPTY = {
+  // there is always a top to a ranking, so an empty second look means there was
+  // nothing to rank rather than nothing wrong.
+  review: "nothing to rank yet: this needs at least two crops labelled " + SUBJECT
+    + " and some labelled " + NEG + ".",
+  alert: "stage two has named nothing.",
+};
+
+function nothing(via) {
+  if (!wantsDecided(via, decided) && items.some(it => it.via === via)) {
+    return "every crop left in this pool is already decided. turn on "
+      + '"already decided" to see them.';
+  }
+  return EMPTY[via] || "nothing left in this pool.";
+}
+
+function tabBar() {
+  const bar = document.getElementById("tabs");
+  bar.innerHTML = TABS.map(([via, name]) =>
+    '<button class="' + via + (via === tab ? " on" : "") + '" data-via="' + via + '">' +
+    name + '<span class="n" id="n-' + via + '"></span></button>').join("");
+  bar.querySelectorAll("button").forEach(b => { b.onclick = () => showTab(b.dataset.via); });
+}
+
+function showTab(next) {
+  tab = next;
+  render_queue();
+}
+
+// re-snapshotting `decided` is what makes the switch do anything: it is a
+// filter on what a pool was drawn as, so flipping it has to redraw the pool.
+function showDecided(on) {
+  decided = on;
+  render_queue();
+}
+
+async function load(q) {
+  if (!q) q = await (await fetch("/queue")).json();
+  items = q.items;
+  // the state the server just reported, so later edits can be counted against
+  // it without asking again. the whole harvest, not just this screenful: a crop
+  // stays in the random pool until it is decided, so skipping one and pressing
+  // train brings it back, which reads as a stuck queue unless the totals say
+  // otherwise.
+  totals = {total: q.total, labelled: q.labelled, remaining: q.remaining,
+            subject: q.subject};
+  items.forEach(it => {
+    it.wasLabelled = !!it.truth;
+    it.wasSubject = it.truth === SUBJECT;
+    // what it was labelled when the pool was drawn, so a crop stays under the
+    // heading it was offered under after a click changes its answer.
+    it.wasTruth = it.truth;
+  });
+  render_queue();
+}
+
+function render_queue() {
+  const via = tab;
+  tabBar();
+  // the snapshot the switch filters on, taken here because here is where the
+  // pool is drawn. everything decided from now until the next draw stays put.
+  items.forEach(it => { it.decided = !!it.truth; });
+
+  const out = document.getElementById("out");
+  out.innerHTML = "";
+  const pool = document.createElement("div");
+  pool.className = "pool " + via;
+  out.appendChild(pool);
+
+  const [title, why] = HEADINGS[via] || [via, ""];
+  const h = document.createElement("h2");
+  // the count is filled in by paint(), which is also what keeps it current as
+  // decisions are made rather than only when the queue is rebuilt.
+  h.innerHTML = '<span class="count" id="count-' + via + '"></span>' +
+    title + ' <span class="why">-- ' + why + "</span>";
+  pool.appendChild(h);
+
+  const here = shown(items, via, wantsDecided(via, decided));
+  if (!here.length) {
+    const none = document.createElement("div");
+    none.className = "none";
+    none.textContent = nothing(via);
+    pool.appendChild(none);
+  }
+  const groups = via === "review" ? lookGroups(here) : [["", here]];
+  groups.filter(([, list]) => list.length).forEach(([heading, list]) => {
+    if (heading) {
+      const h3 = document.createElement("h3");
+      h3.textContent = heading + " (" + list.length + ")";
+      pool.appendChild(h3);
+    }
+    const g = document.createElement("div");
+    g.className = "grid";
+    pool.appendChild(g);
+    list.forEach(it => {
+      const i = items.indexOf(it);
+      const d = document.createElement("div");
+      d.className = "tile";
+      d.dataset.i = i;
+      // what stage two called it, on the verdicts tab only: the random pool is
+      // the one a false positive rate is measured on, and priming it with the
+      // classifier's own opinion is the contamination it exists to avoid.
+      const lead = via === "alert" && it.verdict
+        ? '<b class="v">' + it.verdict + "</b> " : "";
+      d.innerHTML = '<img loading="lazy" src="/crop/' + encodeURIComponent(it.n) + '">' +
+        '<div class="meta">' + lead + (it.score === null ? "" : it.score + "  ") +
+        it.n + "</div>";
+      // the name is what every other tool takes: `--gather`, a labels line, a
+      // grep of the harvest. selecting it by hand off a tile means catching the
+      // caption without catching the tile, which labels the crop.
+      const copy = document.createElement("button");
+      copy.className = "copy";
+      copy.textContent = "copy";
+      copy.title = "copy this crop's filename";
+      copy.onclick = e => { e.stopPropagation(); copyName(it.n, copy); };
+      d.appendChild(copy);
+      // clicking already puts the tile under the pointer, so move the cursor
+      // without scrolling to it -- `draw` here would jump to wherever the
+      // cursor used to be, which is the tile you did not click.
+      d.onclick = () => { at = i; label(clicked(it)); };
+      g.appendChild(d);
+    });
+  });
+
+  // below the set it applies to, not above it: you scroll the whole thing
+  // picking out the yesses, and the button belongs where you finish rather than
+  // where you started.
+  //
+  // the subject is well under a percent of the harvest, so a random screenful
+  // is almost all negative and marking the rest in one go is the same judgement
+  // with 199 fewer clicks.
+  const foot = document.createElement("div");
+  foot.className = "foot";
+  pool.appendChild(foot);
+  if (offersSweep(items, via)) {
+    const sweep = document.createElement("button");
+    sweep.id = "sweep-" + via;
+    sweep.dataset.via = via;
+    sweep.onclick = () => sweepPool(sweep.dataset.via);
+    foot.appendChild(sweep);
+    const undo = document.createElement("button");
+    undo.className = "undo";
+    undo.textContent = "undo";
+    undo.style.display = "none";
+    undo.id = "undo-" + via;
+    undo.onclick = undoSweep;
+    foot.appendChild(undo);
+  }
+
+  // the cursor follows the tab rather than staying on a crop that is now behind
+  // one, and `move(0)` is what clamps it back onto whatever is on screen.
+  move(0);
+  // paint, not draw: rebuilding the queue must not move the page. only the
+  // keyboard, which is deliberate navigation, scrolls anything into view.
+  paint();
+}
+
+load();
+</script>

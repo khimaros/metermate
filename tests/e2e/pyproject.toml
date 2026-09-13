@@ -1,0 +1,20 @@
+[project]
+name = "metermate-e2e"
+version = "0.1.0"
+description = "end to end tests for metermate"
+requires-python = ">=3.11"
+# numpy and scipy are for `tools/motion.py`, which is the independent evidence
+# the evals rest on. it is not part of the runtime -- the rust binary has no
+# python at all -- but it decides what every recall and precision number means,
+# so it is tested here rather than trusted.
+dependencies = ["pytest>=8.0", "numpy>=1.26", "scipy>=1.11"]
+
+[dependency-groups]
+dev = ["ruff>=0.6"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["."]
+addopts = "-q"

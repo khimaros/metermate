@@ -1,0 +1,590 @@
+# metermate configuration. every value below is the default.
+#
+# copy to metermate.local.toml and fill in real credentials; the local copy is
+# gitignored and takes precedence. DESIGN.md has the measurements behind these
+# numbers.
+
+[camera]
+host = "192.168.0.1"
+username = "metermate"
+password = "CHANGEME"
+# video channel on the camera. one camera, one channel.
+channel = 1
+# only for a camera that is not dahua-shaped: the rtsp url template, with
+# {subtype} naming the stream (0 main, 1 sub on dahua; the sub is the one the
+# gate reads when gate_subtype = 1). {host}, {channel}, {username} and
+# {password} are filled in too, and the password is percent-encoded.
+#
+# the scheme is ffmpeg's, so a camera with one stream is `url =
+# "rtsp://host:554/live/{subtype}"` and a pair of recordings is `url =
+# "/var/clips/{subtype}.mp4` -- which is how the test suite runs the rtsp path
+# against files, and how a replay can carry its own geometry.
+# url = ""
+# seconds between pan/tilt position polls, or 0 to not watch. moving the camera
+# invalidates the background model, the roi and every scale prior at once, and
+# nothing else notices. a poll is one lan request.
+ptz_poll_secs = 5
+# degrees of reported movement counted as a repoint. measured here, a still
+# camera reports the same value on every poll, so this only has to clear
+# firmware rounding. too low is expensive: each reset wipes scenery, and no
+# parked vehicle can then accumulate the time it needs to be recognised.
+ptz_moved_degrees = 1.0
+# how long a cgi request may take before it is abandoned, and how long to back
+# off after one fails. a camera rebooting is the normal case.
+cgi_timeout_secs = 5
+cgi_retry_secs = 30
+
+[stream]
+# which stream feeds the motion gate. 0 is main, 1 is the substream. the
+# substream costs 6% of a core to decode, against 30% to decode main and rescale
+# it down.
+gate_subtype = 1
+# what each stream really sends is asked of the stream at startup, and these are
+# the fallback for when it cannot be asked -- a camera rebooting, or one that is
+# off. metermate never rescales the gate's frames, so the number has to be the
+# stream's own size one way or the other: getting it wrong is not an error but
+# sheared half-frames and a harvest that writes nothing. a warning says which
+# was used, and `[gate] roi` is drawn in gate pixels, so a stream that changed
+# size means drawing it again.
+gate_width = 640
+gate_height = 480
+# the same, for the stream the crops are cut from. raise these to match the
+# camera's main resolution if you would rather not depend on the probe.
+main_width = 2560
+main_height = 1440
+# tcp survives wifi packet loss; udp is lower latency on a wired network.
+rtsp_transport = "tcp"
+# ffmpeg decode threads, per stream.
+decode_threads = 2
+# full-resolution frames per second pulled from main for crops. bounds the skew
+# between the gate frame and the crop cut from it: 250ms at 4fps, 67ms at 15.
+# costs pipe bandwidth, not decode -- 3.7% of a core at 4, 4.9% at 15.
+crop_fps = 15
+# decoded frames that may queue before the sender starts dropping them. deep
+# enough to hold what arrives during one inference: at 30fps with a 130ms
+# inference four frames land while the loop is busy, and at the old depth of 2
+# half of them were dropped before the gate ever saw them. the gate's background
+# model is built from every frame, so those were not free to lose.
+frame_queue_depth = 8
+# when to ask the camera for anything at all, as windows of local time: the
+# same grammar as `[harvest] active_hours`, days optional, wrapping midnight,
+# empty -- the default -- meaning always.
+#
+# this is the one that stops the watching rather than the keeping. outside the
+# window the rtsp channels are closed -- both ffmpegs are stopped, so the camera
+# serves nothing and the machine decodes nothing (r3.1) -- and the harvest and
+# the recorder go quiet with them, being driven by frames. what does not stop is
+# the process: the preview, the crops and the event clips stay browsable all
+# night, because they outlive the window that wrote them. what the live page
+# shows instead of the last frame it was sent is "stream closed, until 07:00",
+# because a still street looks exactly like a quiet one.
+#
+# a window on the harvest or the recorder is the cheaper knob when the point is
+# the disk; this is the one for when the point is the street being watched at
+# all. a closed window is logged with the time it reopens and reported at
+# /stats, so an empty directory, a still preview and a quiet machine all say
+# which of them it was.
+active_hours = ""
+# take the memory back with the window: while it is shut the detector and the
+# classifier are dropped rather than held overnight for a street nobody is
+# watching, which is r3.1 again in megabytes.
+#
+# this only means anything alongside active_hours, and it only ever happens
+# while that window is shut: a shut stream delivers no frames, so nothing is mid
+# look when the weights go. they are built again when the window opens, before
+# the first frame is looked at, so the first vehicle through the morning costs a
+# model load and nothing else. off by default -- the memory is doing something
+# useful in every deployment that has not asked otherwise.
+#
+# while the window is shut `/stats` reports `stream_shut` and, under it,
+# `models_released_mb`: how much the last hand-back actually gave, measured on
+# either side of the drop rather than guessed from the size of the model files.
+unload_models = false
+
+[gate]
+# per-pixel luma change counted as a changed pixel. raise to ignore sensor grain
+# and compression noise, lower to catch subtler movement.
+diff_threshold = 25
+# fraction of the frame that must change before motion fires. small, because a
+# go-4 down the block is only a few hundred pixels.
+min_changed_frac = 0.002
+# how long motion stays latched after the last qualifying frame, so one vehicle
+# is one event rather than a burst.
+latch_ms = 2000
+# frames ignored after a reset while the background model settles. also applied
+# after the camera is panned.
+warmup_frames = 15
+# region of interest: a polygon in gate pixels, [[x, y], ...]. pixels outside it
+# are never compared to the background, which is how wires and sky stop producing
+# motion. empty = whole frame. draw it in the preview's roi tab.
+roi = []
+# how big a vehicle is, where. each entry is a line drawn along a vehicle at
+# some depth, [[x1, y1], [x2, y2]] in gate pixels: its midpoint says where and
+# its length says how tall a vehicle is there. draw them in the roi tab, beside
+# the polygon.
+#
+# `min_changed_frac` above is a fraction of the *frame*, and the frame is not
+# one distance away. measured on the development camera, the same vehicle covers
+# 50-60px of height in one corner and 153px in another -- about 9x in area -- so
+# one changed-pixel count is far too strict where vehicles are small and too
+# loose where they are large. two lines is enough; more is better where the
+# street bends. empty means no correction.
+#
+# **draw these after the roi, not before.** the useful lines lie along the depth
+# axis of the road, which includes whatever the roi was not previously covering
+# -- so lines drawn against an roi that is about to change are calibrated
+# against the wrong part of the street.
+perspective = []
+# how fast the background absorbs a change, as a right-shift on 8.8 fixed point.
+# larger is slower: 5 means a change persists ~32 frames, slow enough that a
+# vehicle stopped at the kerb keeps triggering, fast enough to ride out drift.
+bg_shift = 5
+# a changed region smaller than this on BOTH axes is noise.
+min_region_px = 12
+# and it must be this thick on its shorter axis. the anti-wire filter: a wire or
+# glass shimmer differences as something long and one or two pixels thick, which
+# passes any test on the longer axis. the knob most likely to need changing on a
+# different camera.
+min_region_thickness_px = 4
+# a connected blob with fewer pixels than this never becomes an object.
+min_component_px = 4
+# regions closer than this on both axes are one object: a vehicle differences as
+# windscreen, body and shadow rather than a single blob.
+merge_gap_px = 4
+# most regions handed downstream from one frame. more distinct moving objects
+# than this is a scene change, not traffic.
+max_regions = 8
+# vertices an roi needs before it bounds anything, and the share of the frame
+# below which one is probably a mistake -- coordinates from a different frame
+# size look valid and watch nothing.
+roi_min_vertices = 3
+roi_suspiciously_small = 0.02
+
+[crop]
+# context added around a motion region before the detector looks at it.
+context_margin = 0.35
+# crops are squared and clamped to this range. a long thin crop letterboxes to
+# mostly black: a 659x1440 strip became 640x640 at 0.44x, turning a 300px car
+# into a 133px smudge, which is where junk classes came from.
+min_crop_px = 96
+max_crop_px = 960
+# a region covering more of the frame than this is a scene change -- the light
+# moved, or the camera did -- and not an object worth cropping.
+max_region_fraction = 0.40
+
+[record]
+# full-resolution clips of the moments something happened, in addition to the
+# fixed windows `make record` writes. off by default: it writes video, and
+# nobody should discover that by running out of disk.
+#
+# the point is eval fixtures. the labelled waymo passages arrive about twice an
+# hour and the hand-started clips are ten minutes long, so measured against the
+# labels, none of the recorded clips contains a single labelled passage -- the
+# nearest miss starts 85 seconds too late. a clip that is guaranteed to hold
+# something is what makes a crop-framing or detector change testable by replay.
+#
+# it costs no inference and no extra camera session: the main stream is already
+# remuxed as a second output of the ffmpeg feeding the crops, a byte copy of
+# what the camera sent. it does need `[preview] source = "main-h264"`, which is
+# where that remux comes from.
+#
+# `--record-events` and `--record-events=false` override this either way.
+enabled = false
+dir = "data/events"
+# derived files: today the still frame the events tab shows for each clip. its
+# own directory so `dir` holds clips and nothing else -- everything here can be
+# deleted at any time and is rebuilt on demand.
+cache_dir = "data/cache"
+# seconds held before a trigger. motion fires after the subject is already in
+# frame, so without this a clip opens on a vehicle halfway across and cannot say
+# when it first appeared. measured here, one second was not enough. raise it if
+# vehicles enter your frame further out, or if the event does not land where the
+# pre-roll says it should.
+preroll_secs = 3
+# how long after the last trigger a clip stays open, so one vehicle is one clip
+# rather than a burst of them. this is the *second* latch: the trigger is the
+# gate's latched motion, so a clip's quiet tail is `[gate] latch_ms` plus this.
+hangover_secs = 1
+# ceiling on one clip, so continuous traffic cannot become a single enormous
+# file that is neither an event nor reviewable.
+max_clip_secs = 60
+# disk for clips, evicted by what was found in them and only then by age --
+# unlike the harvest, where the oldest crop is the cheapest to lose. a clip
+# holding a recognised subject may be the only one that exists. 10 GB.
+max_bytes = 21474836480
+# which outcomes are worth a file: any of "motion", "detection", "subject".
+# empty keeps every clip.
+#
+# not "motion" by default. on a street with parked cars permanently in frame, a
+# motion-only clip is one where the gate fired and nothing was ever established
+# -- light moving, a pedestrian, a wire -- and measured on a real deployment
+# those are the clips with no vehicle in them at all. "subject" is listed as
+# well as "detection" because it is a separate rung rather than a stronger form
+# of it, and a clip holding a recognised go-4 is the one clip worth keeping.
+#
+# this cannot be decided before recording, only before keeping: at the trigger
+# the detector has not run yet. that is the same argument the ring buffer rests
+# on, so an unwanted clip is written and then deleted rather than never started.
+keep = ["detection", "subject"]
+# which streams to record: any of "main" and "sub".
+#
+# **both, because a clip of main alone can be watched but not replayed** -- and
+# replay is what this section exists for. `tools/endtoend.py` takes the
+# substream as its clip and the main stream as `--crop-source`: the substream
+# drives the gate and the motion scan that judges precision, the main stream
+# supplies the crops. the substream cannot be derived by downscaling main, since
+# the gate reads the camera's own encode -- anamorphic, at its own frame rate --
+# and metermate deliberately never rescales on that path.
+#
+# recording both roughly DOUBLES the disk budget, because the substream is
+# currently mjpeg: measured at 1.81 mbit against main's 1.85. that is a camera
+# setting -- it was h.264 at ~263 kbit until a browser asked it for mjpeg and
+# switched its one encoder -- so switched back the pair would cost about +14%.
+# drop to ["main"] for clips that are only ever watched.
+#
+# each rides along as a second output of the ffmpeg already pulling that stream,
+# so neither opens another camera session. empty is no filter, as in `keep`.
+streams = ["main", "sub"]
+# when recording may open a clip, as windows of local time -- the same form,
+# days and all, and the same refusals as `[harvest] active_hours`. a clip
+# already open when the window shuts keeps its own pre-roll and hangover and
+# closes on its own terms; it just does not start one more.
+active_hours = ""
+
+[scenery]
+# seconds a vehicle must hold one place before it counts as scenery and stops
+# being harvested. generous: a vehicle stopping at the kerb is what enforcement
+# does, so it must stay interesting long enough to be caught first.
+parked_after_secs = 90
+# seconds without a sighting before a place is forgotten, AND this many looks
+# that missed it. both, because the gate only looks when something moves: on a
+# quiet night wall time alone reads "nobody looked" as "it has gone", and the
+# parked jeep is rediscovered and re-cropped on every burst of traffic.
+forget_after_secs = 240
+forget_after_looks = 200
+# share of looks since a place became known in which something was found there.
+# a parked car is in nearly every look; a patch of road traffic crosses is not.
+min_occupancy = 0.5
+# how close two sightings must be to be the same place, as a fraction of the
+# larger box.
+same_place = 0.25
+# sightings before a place can be called scenery at all, so one stale detection
+# cannot condemn it.
+min_sightings = 3
+
+[track]
+# overlap between a detection and a track's last box to count as the same
+# vehicle. iou is right here -- two boxes around one car a frame apart -- even
+# though it was rejected for matching motion regions to detections.
+min_iou = 0.2
+# drop a track unseen for this long AND missed in this many looks. both, because
+# the gate only looks when something moves and a quiet stretch is not evidence
+# anything left.
+max_gap_secs = 5.0
+max_missed_looks = 30
+# gate pixels per second below which a vehicle counts as stopped, which is when
+# dwell starts accumulating.
+stopped_below_px_per_sec = 8.0
+# and how long it must stay under that before `stopped` is published.
+stopped_after_secs = 3.0
+# a subject is confirmed once this many of the last n looks agreed. one frame is
+# not evidence: a white van at the wrong angle reads as a go-4 for a frame.
+confirm_m = 3
+confirm_n = 5
+# how many recent positions the speed estimate averages over. one frame apart is
+# mostly quantisation noise on a box that jitters by a pixel.
+velocity_window = 8
+
+[detector]
+# stage one: find vehicles and people generically. yolo26s, not the nano -- nano
+# missed the largest car in frame and ran a 0.39 median confidence here against
+# small's 0.75.
+model = "models/detector.onnx"
+# square input. smaller is quadratically cheaper and loses the far side of the
+# street, which is where a vehicle appears first.
+input_size = 640
+# floor for reporting a detection at all, not for believing it. stage two
+# decides what is a go-4.
+min_confidence = 0.25
+# onnx threads. the detector runs inline in the frame loop, so this trades
+# latency per inference against cores left for decode.
+threads = 2
+# which detector classes are carried past stage one. everything else is detected
+# and then dropped, before the classifier or the harvest sees it -- so a class
+# missing here can never be recognised later, however it is configured.
+#
+# an EMPTY list keeps everything. the default is the vehicle classes so nothing
+# changes for anyone who does not ask, but what metermate watches for is not
+# required to be a vehicle: `--list-classes` prints every name accepted here.
+#
+# `bicycle` is deliberately not among them: enforcement does not arrive on one,
+# and a street with cyclists on it spends detections, crops and tracks on a thing
+# that can never be the subject. add it back here if that is not true of yours.
+classes = ["car", "motorcycle", "bus", "truck"]
+# most regions the detector may examine in one frame.
+max_regions_per_frame = 2
+# always spend one inference on the whole frame when the gate fires, ahead of the
+# rate limit. without it, motion being bursty meant the allowance ran out
+# mid-crossing: measured, the detector never looked at 59% of the frames the gate
+# fired on. off, it costs frame rate instead -- the detector runs inline, so this
+# stalls the gate for one inference per motion frame. raise `threads` first.
+always_inspect_whole_frame = true
+# fraction of wall-clock the detector may occupy while something is moving. the
+# rate follows from this and the MEASURED inference cost rather than being a
+# count: a count tuned for one machine starves another, and the same binary runs
+# on the laptop and the deployment host.
+duty_cycle = 0.6
+# and the rate is clamped to this range however fast or slow it measures.
+min_per_sec = 2
+max_per_sec = 12
+# weight of the newest measurement in the rolling average of inference time. one
+# slow frame should not halve the next second's rate.
+inference_smoothing = 0.2
+# how long before the same place is worth examining again, and how close two
+# regions must be to count as that same place.
+reinspect_ms = 200
+reinspect_tolerance = 0.5
+# a detection narrower than this is re-examined in a magnified crop. measured:
+# cropping adds nothing for near vehicles and about 0.09 of confidence for small
+# ones, so it is spent only where it pays.
+small_detection_px = 96
+# most detections the model may report in one pass. a property of the exported
+# graph's nms rather than a preference.
+max_detections = 300
+
+[harvest]
+# full-resolution crops saved to build a training set. runs from day one:
+# enforcement passes a few times a day and a day not recorded is gone.
+enabled = true
+dir = "data/crops"
+# oldest crops are deleted past this, so the harvest degrades before the disk
+# fills. 20 GB.
+max_bytes = 10737418240
+# crops somebody labelled are never deleted to meet max_bytes: the budget deletes
+# oldest first, and a label whose crop is gone can never be trained on again.
+# read from the labels.txt beside dir. labelled crops still count towards the
+# budget, so the rest of the harvest rotates a little faster around them.
+keep_labelled = true
+# minimum gap before the same place is photographed again. the over- versus
+# under-capture dial: a vehicle takes a few seconds to cross, so a long gap
+# yields one crop per passage, from whichever moment happened to win.
+min_interval_secs = 5
+# how close two crops must be, as a fraction of their size, to count as the same
+# place for that gap. larger deduplicates more aggressively.
+same_object_tolerance = 0.5
+# fraction of a vehicle's own pixels that must have changed before it is
+# harvested. measured here: moving vehicles sit at 0.11-0.17, stationary ones at
+# 0.00-0.03.
+must_have_moved = 0.08
+# and this share of that movement must sit in the middle half of the vehicle's
+# own box. a bounding box is not a vehicle -- it also holds road and anything
+# overlapping it -- so a car passing a parked one clips a corner of its box and
+# the parked car gets credited with the movement. that is where the endless
+# crops of the same jeep came from. measured over 283 crops: a vehicle's own
+# motion sits at 0.42 of its middle, motion clipping a corner at 0.00.
+motion_must_be_central = 0.20
+# context kept around a harvested vehicle, as a fraction of its box. a crop flush
+# to the bodywork gives a classifier nothing to place the vehicle against; a
+# little kerb and lane marking is what makes it legible.
+context = 0.18
+# and more when the detection was clipped by its crop edge, since the box is
+# truncated and the surrounding pixels are right there in the frame.
+clipped_context = 0.45
+# slack when deciding whether a detection is clipped by its crop edge.
+edge_slack_px = 3
+# jpeg quality for saved crops. these are training data, so this errs high:
+# compression artefacts are the one kind of noise a classifier learns as signal.
+jpeg_quality = 92
+# most vehicles harvested from one frame. not 1, because two cars crossing at
+# once is ordinary and taking only the one that moved most discarded the other.
+max_per_frame = 4
+# when harvesting is allowed, as windows of local time. empty -- the default --
+# means always. the plain form is "HH:MM-HH:MM", and when the start is past the
+# end the window wraps midnight ("22:00-06:00").
+#
+# days go in front, and more than one window a day goes after:
+#
+#   "mon-fri 07:00-19:00"                  weekdays only
+#   "mon-fri 07:00-09:00,16:00-19:00"      a morning and an evening
+#   "mon-fri 07:00-19:00; sat 09:00-17:00" a week's worth of them
+#
+# days are sun, mon, tue, wed, thu, fri, sat, or a range like mon-fri, and they
+# are what makes a window shut thursday evening and open monday morning. a value
+# that is not a window is refused at startup rather than ignored, because a typo
+# silently keeping nothing reads exactly like a quiet street.
+#
+# enforcement is a daytime phenomenon: a night of empty road spends the same
+# disk budget as a day of traffic. this restricts the *collection* of crops,
+# not the alerting -- a confirmed subject outside the window still publishes
+# with its evidence crop.
+active_hours = ""
+
+[preview]
+# where the browser gets video.
+#   main-h264   the camera's h.264 main stream remuxed to fragmented mp4. full
+#               2560x1440, a stream copy rather than a re-encode, riding along
+#               as a second output of the ffmpeg already reading main.
+#   server-sub  jpeg metermate encodes from the gate frame, at the scene's
+#               aspect. the fallback for a client that will not play h.264.
+#   camera-sub  mjpeg straight from the camera, 640x480. free for metermate, but
+#               the camera has one substream encoder and the gate is using it,
+#               so this changes what the detector sees. needs anonymous camera
+#               access and a browser that can reach the camera.
+source = "server-sub"
+# the box preview frames are encoded into, when they are: a box rather than a
+# shape, because the shape is the main stream's -- the street both streams are
+# looking at. a 16:9 street in this box is 640x360, a 4:3 one is 480x360 and a
+# 64:29 one is 640x290. squeezing the picture into the box instead would leave
+# the overlay canvas, which covers the box, drawing boxes above the vehicles.
+width = 640
+height = 360
+jpeg_quality = 70
+# how long a detection box stays drawn after the detector last reported it, so
+# boxes do not flicker between runs, and how close two boxes must be to be
+# redrawn as the same vehicle rather than accumulating into a thicket.
+overlay_linger_ms = 700
+overlay_same_box = 0.5
+# draw the vehicles scenery has decided are part of the street. they are the ones
+# the pipeline left alone, which is worth seeing -- but on a street where most of
+# what the detector reports is kerb they are a thicket over the box that matters.
+# off, and only the vehicles a person might still disagree with are drawn.
+show_parked = true
+# crops returned per page of the harvest viewer.
+crops_listed = 120
+# event clips returned to the events viewer. fewer than the crops: each is a
+# video element rather than an image. the page says how many were held back, so
+# this can never read as an empty directory.
+clips_listed = 60
+# frames a slow viewer may fall behind before it is dropped.
+viewer_backlog = 240
+# how far behind the live edge the h.264 player sits.
+#
+# **the player measures this rather than taking it.** the cushion exists so a
+# fragment arriving late has something to play through, so its right size is the
+# worst lateness the stream actually produces -- and that is visible, in the
+# spacing of the fragments as they are appended. it is recomputed from the last
+# eight seconds of them.
+#
+# these two bound the answer. measured on this camera: fragments nominally 61ms
+# apart, worst lateness 167ms, so 250 covers what was observed with margin.
+# raise the floor if the picture hitches; lower the ceiling if latency after a
+# bad stretch annoys you more than the hitching would.
+target_buffer_ms = 250
+max_buffer_ms = 2000
+# and the floor on how often the player may reopen the stream. reopening costs
+# about a second of black, so a reconnect that triggers another stutters
+# forever. it also paces the retry after the 503 the server returns before
+# ffmpeg has produced a header, so at 5000 every restart began with five seconds
+# of nothing.
+reconnect_min_ms = 1000
+# what to do when the picture falls behind the live edge.
+#   skip    seek forward to the edge. the picture jumps, and is current.
+#   speed   play 10% fast until the gap closes. every frame is shown, in order,
+#           and the picture stays late while it walks back.
+#
+# skip by default: this is a street watched for a vehicle that may stop for
+# ninety seconds, so a late frame is worth less than a current one -- and the
+# detector sees every frame either way. this is the picture, not the pipeline.
+catch_up = "skip"
+
+[classifier]
+# stage two: is this vehicle a go-4. off until a clean reference set exists;
+# until then metermate harvests the crops that set will be built from.
+enabled = false
+model = "models/embedder.onnx"
+# a directory, not a file: one subdirectory per subject, each holding its own
+# references.txt and negatives.txt. `--train <subject>` writes one of them.
+references = "trained"
+# there is no margin here. it is an output of a measurement, not a setting:
+# `--train` sweeps it against held-out passages, picks an operating point, and
+# writes it to `trained/<subject>/trained.toml` beside the vectors it was
+# measured against. a margin set by hand in a config on another machine
+# describes a rule nobody ran.
+
+# the commands a round of labelling ends in.
+#
+# everything before them happens in the browser: crops are labelled on the
+# preview's crops tab, passages are marked on its events tab. then
+#
+#   metermate --prepare                      # cut every marked passage into `sets`
+#   metermate --label go4 --harvest sets/    # label what was cut
+#   metermate --retrain                      # train every subject over the harvest and `sets`
+#
+# apart because the costs are: the first is a detector pass per passage, the
+# second is a person looking, the third embeds and measures everything labelled
+# so far. a cut passage is unlabelled, and unlabelled is counted as street, so
+# the second is not optional.
+[train]
+# where a cut passage lands, and where --retrain looks besides [harvest] dir.
+sets = "sets"
+
+# what metermate watches for. each block is one thing worth publishing about,
+# and adding one needs no recompile (r10.1).
+#
+# with no [[subject]] block at all, a single subject named "go4" is assumed with
+# the margin from [classifier], so a config written before this existed keeps
+# working. that is the only reason the go-4 is spelled anywhere in the code.
+#
+# `name` is the label in the reference file, the mqtt topic segment, and the home
+# assistant entity id, so it must start with a letter and hold only lowercase
+# letters, digits and single dashes. "other" and "unclear" are reserved.
+#
+# `name` also names the directory under `[classifier] references`, which holds
+# that subject's own positives and its own negatives. the negatives are not
+# shared: a go-4 is a negative for a waymo, so one pool holding both would drag
+# each subject's score down by whatever the other contributed. a subject whose
+# directory is missing either half is skipped rather than judged.
+#
+# a subject need not be a vehicle (r10.3), but anything it could be has to be in
+# `[detector] classes` first -- stage one drops the rest before this sees them.
+#
+# [[subject]]
+# name = "go4"
+# detector_classes = ["car", "truck"]   # optional; defaults to [detector] classes
+#
+# [[subject]]
+# name = "street-sweeper"
+
+# remove this whole section to run without alerting: the pipeline still runs and
+# logs its decisions, it just publishes nothing.
+[mqtt]
+host = "127.0.0.1"
+port = 1883
+client_id = "metermate"
+# alerts are published under this prefix, one topic per severity tier.
+base_topic = "metermate"
+# where home assistant looks for mqtt discovery announcements.
+discovery_prefix = "homeassistant"
+# username = "..."
+# password = "..."
+
+# a phone, with no broker and no bridge in between.
+#
+# mqtt is the integration surface: it carries the facts a rule acts on. this
+# carries a sentence and the crop that caused it, to whoever is holding the
+# phone -- which is the shortest path between "a go-4 turned the corner" and
+# "the car has been moved".
+#
+# works with or without [mqtt]. `metermate --notify-test` sends one and says
+# what the server answered, which is how a token gets proved before it matters.
+[ntfy]
+enabled = false
+server = "https://ntfy.sh"
+# **there is no default, and the reason matters**: an ntfy topic is a password.
+# anyone who knows it reads every alert, so pick something nobody will guess.
+topic = ""
+# for a server that wants one. put it in metermate.local.toml, which is
+# gitignored, beside the camera password.
+token = ""
+# which outcomes are worth a phone. the sighting is the earliest warning and
+# the point of the project; the rest are mostly of interest to a rule engine.
+# one of: sighting, moving, stopped, dismount, departed.
+outcomes = ["sighting"]
+# ntfy's own scale: min, low, default, high, urgent. high wakes a phone that is
+# face down on a table.
+priority = "high"
+# the preview, at an address the phone can actually reach. the tap is aimed past
+# it at the verdict the notification carried, so the picture opens rather than the
+# front page of the harvest; an outcome with no crop of its own -- a vehicle that
+# stopped, or left -- opens the verdicts. empty sends no link.
+# click = "http://10.1.100.250:8420/"

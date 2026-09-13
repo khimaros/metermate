@@ -1,0 +1,15 @@
+[tools]
+rust = "1.97.0"
+python = "3.13"
+uv = "latest"
+# the labelling page is javascript shipped to a browser, and the rules it rests
+# on -- which pool a tab draws, what the "already decided" switch hides -- are
+# only true if the page itself says so. node runs the real page against the real
+# binary in `tests/e2e/test_learn.py`. not a runtime dependency: the binary has
+# no javascript engine in it.
+node = "25"
+
+[env]
+# ort links onnx runtime at build time. "download" lets the crate fetch a
+# matching prebuilt runtime instead of requiring a system install.
+ORT_STRATEGY = "download"

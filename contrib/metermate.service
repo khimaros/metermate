@@ -1,0 +1,95 @@
+# systemd **user** unit, for running metermate on a machine you log into.
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp contrib/metermate.service ~/.config/systemd/user/
+#   $EDITOR ~/.config/systemd/user/metermate.service     # set WorkingDirectory
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now metermate
+#
+# then, so it keeps running after you log out:
+#   sudo loginctl enable-linger $USER
+#
+# for an always-on server, prefer contrib/metermate-system.service, which starts
+# at boot without needing linger.
+
+[Unit]
+Description=metermate parking enforcement watcher
+Documentation=https://github.com/khimaros/metermate
+
+# deliberately no network-online.target: it is a system target and a user
+# manager cannot order against it usefully. metermate does not need it either --
+# the ingest supervisor expects the camera to be absent and retries with backoff
+# (r5.1), so starting before the network is up costs a few seconds of warnings
+# rather than a failed start.
+
+# never stop trying. the default is to give up after 5 restarts in 10s, which
+# for a service meant to run unattended for weeks is exactly backwards: a camera
+# rebooting or wifi dropping is the normal case this is built to survive, and
+# giving up permanently turns a transient fault into silent downtime.
+StartLimitIntervalSec=0
+
+[Service]
+# the binary resolves models/, data/ and metermate.local.toml relative to here.
+WorkingDirectory=%h/src/github.com/khimaros/metermate
+ExecStart=%h/src/github.com/khimaros/metermate/target/release/metermate
+
+Environment=RUST_LOG=metermate=info
+
+# the camera is on wifi and will drop; the supervisor handles that itself, but
+# restart anyway if the process dies outright (r5.1).
+Restart=always
+RestartSec=5
+
+# r3.3 caps steady-state memory at 1 GB. stated as limits rather than hopes:
+# MemoryHigh throttles and reclaims, so a slow leak shows up as pressure in the
+# journal, and MemoryMax is the hard stop.
+#
+# **this cgroup holds the ffmpeg children too.** measured on the deployment:
+# 652 MB steady, 860 MB peak -- metermate 439 MB, main-stream ffmpeg 191 MB,
+# gate ffmpeg 108 MB. the old note here said 155 MB peaking near 300, which was
+# true before the crop feed decoded 2560x1440.
+#
+# MemoryHigh was 768M, and what happens when it is crossed is worth knowing,
+# because nothing about it looks like memory. the kernel does not kill anything;
+# it throttles every allocation into direct reclaim. the service was throttled
+# 165,334 times, `sock_throttled` throttled the rtsp receive path itself, and the
+# main stream then delivered nothing for ten seconds at a stretch, every
+# forty-five seconds, with no error logged anywhere and the cpu idle. it reads as
+# a camera fault, or a detector fault, or anything but a memory limit.
+#
+# so the soft limit sits close to the hard one: it exists to catch a leak, and a
+# cliff 100 MB below the ceiling catches ordinary variation instead.
+MemoryHigh=960M
+MemoryMax=1G
+
+# r3.1 caps idle cost at 30% of one core, measured at 4%. this is far above
+# that, because the detector is allowed to burst while a vehicle is in frame and
+# throttling it would drop the frames the vehicle is in. it exists to stop a
+# runaway, not to enforce the idle budget.
+#
+# it does bound `[detector] threads`, though: 200% is two cores, so asking onnx
+# for eight buys nothing here and the extra threads simply contend. raise this
+# first if raising that.
+CPUQuota=200%
+
+# it writes only to its own directory, and reads models and config from there.
+ProtectSystem=full
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+PrivateTmp=true
+NoNewPrivileges=true
+# it binds 8420, which needs no privilege, and spawns ffmpeg, which needs none
+# either. so it needs no capabilities at all.
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+# rtsp to the camera, mqtt to the broker, tcp for the preview server.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=default.target

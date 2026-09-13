@@ -1,0 +1,1280 @@
+[
+  {
+    "event": 1,
+    "t": 19.3,
+    "span_s": 4.1,
+    "motion": 0.0318,
+    "moved_box": [
+      1472,
+      120,
+      2160,
+      600
+    ],
+    "detected_on_moved": [
+      {
+        "label": "truck",
+        "conf": 0.519,
+        "w": 547
+      }
+    ],
+    "detected_total": 8,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.352
+      },
+      {
+        "cls": 0,
+        "conf": 0.277
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 2,
+    "t": 30.2,
+    "span_s": 4.8,
+    "motion": 0.0364,
+    "moved_box": [
+      1408,
+      384,
+      2144,
+      852
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.865,
+        "w": 667
+      }
+    ],
+    "detected_total": 7,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.359
+      },
+      {
+        "cls": 0,
+        "conf": 0.322
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 3,
+    "t": 43.2,
+    "span_s": 3.3,
+    "motion": 0.051,
+    "moved_box": [
+      1344,
+      468,
+      2080,
+      924
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.879,
+        "w": 685
+      }
+    ],
+    "detected_total": 7,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.396
+      },
+      {
+        "cls": 0,
+        "conf": 0.386
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 4,
+    "t": 49.4,
+    "span_s": 3.4,
+    "motion": 0.0204,
+    "moved_box": [
+      1648,
+      132,
+      2240,
+      540
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.906,
+        "w": 486
+      }
+    ],
+    "detected_total": 8,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.378
+      },
+      {
+        "cls": 0,
+        "conf": 0.336
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 5,
+    "t": 67.09,
+    "span_s": 3.4,
+    "motion": 0.0194,
+    "moved_box": [
+      1536,
+      168,
+      2160,
+      588
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.867,
+        "w": 501
+      }
+    ],
+    "detected_total": 6,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.286
+      },
+      {
+        "cls": 0,
+        "conf": 0.278
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 6,
+    "t": 142.59,
+    "span_s": 9.5,
+    "motion": 0.0435,
+    "moved_box": [
+      1312,
+      348,
+      2080,
+      888
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.92,
+        "w": 729
+      }
+    ],
+    "detected_total": 7,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.425
+      },
+      {
+        "cls": 0,
+        "conf": 0.337
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 7,
+    "t": 154.89,
+    "span_s": 4.3,
+    "motion": 0.0493,
+    "moved_box": [
+      1280,
+      504,
+      1984,
+      936
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.908,
+        "w": 716
+      }
+    ],
+    "detected_total": 11,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.256
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 8,
+    "t": 174.18,
+    "span_s": 6.1,
+    "motion": 0.0511,
+    "moved_box": [
+      1344,
+      408,
+      2128,
+      900
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.912,
+        "w": 732
+      }
+    ],
+    "detected_total": 9,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.44
+      },
+      {
+        "cls": 0,
+        "conf": 0.357
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 9,
+    "t": 184.78,
+    "span_s": 4.0,
+    "motion": 0.0294,
+    "moved_box": [
+      1664,
+      144,
+      2240,
+      552
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.916,
+        "w": 498
+      }
+    ],
+    "detected_total": 7,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.372
+      },
+      {
+        "cls": 0,
+        "conf": 0.339
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 10,
+    "t": 191.38,
+    "span_s": 10.4,
+    "motion": 0.0241,
+    "moved_box": [
+      1616,
+      192,
+      2144,
+      552
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.923,
+        "w": 441
+      },
+      {
+        "label": "car",
+        "conf": 0.725,
+        "w": 333
+      }
+    ],
+    "detected_total": 9,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.337
+      },
+      {
+        "cls": 0,
+        "conf": 0.262
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 11,
+    "t": 212.18,
+    "span_s": 3.9,
+    "motion": 0.0254,
+    "moved_box": [
+      1680,
+      120,
+      2240,
+      516
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.902,
+        "w": 478
+      }
+    ],
+    "detected_total": 7,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.394
+      },
+      {
+        "cls": 0,
+        "conf": 0.35
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 12,
+    "t": 221.98,
+    "span_s": 4.9,
+    "motion": 0.0195,
+    "moved_box": [
+      1600,
+      216,
+      2144,
+      564
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.886,
+        "w": 466
+      },
+      {
+        "label": "car",
+        "conf": 0.71,
+        "w": 335
+      }
+    ],
+    "detected_total": 8,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.268
+      },
+      {
+        "cls": 0,
+        "conf": 0.266
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 13,
+    "t": 254.38,
+    "span_s": 7.5,
+    "motion": 0.0441,
+    "moved_box": [
+      1392,
+      444,
+      2064,
+      852
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.923,
+        "w": 649
+      }
+    ],
+    "detected_total": 8,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.594
+      },
+      {
+        "cls": 0,
+        "conf": 0.36
+      },
+      {
+        "cls": 0,
+        "conf": 0.311
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 14,
+    "t": 279.88,
+    "span_s": 9.2,
+    "motion": 0.0385,
+    "moved_box": [
+      1456,
+      420,
+      2144,
+      828
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.896,
+        "w": 547
+      }
+    ],
+    "detected_total": 7,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.385
+      },
+      {
+        "cls": 0,
+        "conf": 0.269
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 15,
+    "t": 304.17,
+    "span_s": 3.7,
+    "motion": 0.0299,
+    "moved_box": [
+      1520,
+      132,
+      2240,
+      612
+    ],
+    "detected_on_moved": [
+      {
+        "label": "truck",
+        "conf": 0.863,
+        "w": 622
+      }
+    ],
+    "detected_total": 6,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.306
+      },
+      {
+        "cls": 0,
+        "conf": 0.272
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 16,
+    "t": 346.97,
+    "span_s": 4.7,
+    "motion": 0.0266,
+    "moved_box": [
+      1600,
+      180,
+      2192,
+      576
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.917,
+        "w": 478
+      },
+      {
+        "label": "car",
+        "conf": 0.574,
+        "w": 323
+      }
+    ],
+    "detected_total": 8,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.395
+      },
+      {
+        "cls": 0,
+        "conf": 0.348
+      },
+      {
+        "cls": 0,
+        "conf": 0.314
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 17,
+    "t": 361.37,
+    "span_s": 3.6,
+    "motion": 0.0281,
+    "moved_box": [
+      1584,
+      180,
+      2160,
+      552
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.835,
+        "w": 474
+      },
+      {
+        "label": "car",
+        "conf": 0.471,
+        "w": 321
+      }
+    ],
+    "detected_total": 7,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.339
+      },
+      {
+        "cls": 0,
+        "conf": 0.339
+      },
+      {
+        "cls": 0,
+        "conf": 0.266
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 18,
+    "t": 402.36,
+    "span_s": 4.0,
+    "motion": 0.0259,
+    "moved_box": [
+      1696,
+      144,
+      2240,
+      528
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.899,
+        "w": 493
+      }
+    ],
+    "detected_total": 7,
+    "non_vehicle_boxes": [],
+    "truth": "vehicle"
+  },
+  {
+    "event": 19,
+    "t": 411.96,
+    "span_s": 4.2,
+    "motion": 0.0196,
+    "moved_box": [
+      1536,
+      216,
+      2112,
+      588
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.882,
+        "w": 491
+      },
+      {
+        "label": "car",
+        "conf": 0.406,
+        "w": 331
+      }
+    ],
+    "detected_total": 9,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.341
+      },
+      {
+        "cls": 0,
+        "conf": 0.293
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 20,
+    "t": 421.56,
+    "span_s": 8.8,
+    "motion": 0.0497,
+    "moved_box": [
+      1344,
+      432,
+      2080,
+      900
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.88,
+        "w": 690
+      }
+    ],
+    "detected_total": 7,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.352
+      },
+      {
+        "cls": 0,
+        "conf": 0.348
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 21,
+    "t": 467.66,
+    "span_s": 13.5,
+    "motion": 0.0553,
+    "moved_box": [
+      1328,
+      420,
+      2160,
+      936
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.888,
+        "w": 776
+      }
+    ],
+    "detected_total": 8,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.406
+      },
+      {
+        "cls": 0,
+        "conf": 0.313
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 22,
+    "t": 505.76,
+    "span_s": 13.5,
+    "motion": 0.0612,
+    "moved_box": [
+      1232,
+      456,
+      1984,
+      936
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.724,
+        "w": 718
+      }
+    ],
+    "detected_total": 11,
+    "non_vehicle_boxes": [],
+    "truth": "vehicle"
+  },
+  {
+    "event": 23,
+    "t": 522.85,
+    "span_s": 3.7,
+    "motion": 0.0248,
+    "moved_box": [
+      1632,
+      132,
+      2240,
+      528
+    ],
+    "detected_on_moved": [
+      {
+        "label": "truck",
+        "conf": 0.744,
+        "w": 531
+      },
+      {
+        "label": "car",
+        "conf": 0.561,
+        "w": 326
+      }
+    ],
+    "detected_total": 8,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.449
+      },
+      {
+        "cls": 0,
+        "conf": 0.283
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 24,
+    "t": 543.35,
+    "span_s": 3.0,
+    "motion": 0.0449,
+    "moved_box": [
+      1376,
+      372,
+      2160,
+      852
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.802,
+        "w": 672
+      }
+    ],
+    "detected_total": 8,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.409
+      },
+      {
+        "cls": 0,
+        "conf": 0.328
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 25,
+    "t": 557.55,
+    "span_s": 3.1,
+    "motion": 0.0233,
+    "moved_box": [
+      1728,
+      132,
+      2240,
+      516
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.933,
+        "w": 483
+      }
+    ],
+    "detected_total": 10,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.362
+      },
+      {
+        "cls": 0,
+        "conf": 0.295
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 26,
+    "t": 582.35,
+    "span_s": 6.3,
+    "motion": 0.0511,
+    "moved_box": [
+      1312,
+      468,
+      2048,
+      912
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.924,
+        "w": 719
+      }
+    ],
+    "detected_total": 8,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.496
+      },
+      {
+        "cls": 0,
+        "conf": 0.429
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 27,
+    "t": 589.35,
+    "span_s": 3.2,
+    "motion": 0.0232,
+    "moved_box": [
+      1632,
+      192,
+      2208,
+      564
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.899,
+        "w": 483
+      },
+      {
+        "label": "car",
+        "conf": 0.741,
+        "w": 333
+      }
+    ],
+    "detected_total": 8,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.376
+      },
+      {
+        "cls": 0,
+        "conf": 0.355
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 28,
+    "t": 603.65,
+    "span_s": 2.6,
+    "motion": 0.0359,
+    "moved_box": [
+      1664,
+      408,
+      2112,
+      744
+    ],
+    "detected_on_moved": [
+      {
+        "label": "motorcycle",
+        "conf": 0.609,
+        "w": 323
+      }
+    ],
+    "detected_total": 8,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.401
+      },
+      {
+        "cls": 0,
+        "conf": 0.333
+      },
+      {
+        "cls": 0,
+        "conf": 0.286
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 29,
+    "t": 620.14,
+    "span_s": 3.3,
+    "motion": 0.0352,
+    "moved_box": [
+      1472,
+      360,
+      2160,
+      804
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.92,
+        "w": 617
+      }
+    ],
+    "detected_total": 8,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.57
+      },
+      {
+        "cls": 0,
+        "conf": 0.526
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 30,
+    "t": 677.34,
+    "span_s": 2.6,
+    "motion": 0.0391,
+    "moved_box": [
+      1424,
+      420,
+      2112,
+      828
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.863,
+        "w": 629
+      }
+    ],
+    "detected_total": 8,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.3
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 31,
+    "t": 686.74,
+    "span_s": 3.1,
+    "motion": 0.0251,
+    "moved_box": [
+      1616,
+      192,
+      2192,
+      564
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.912,
+        "w": 468
+      },
+      {
+        "label": "car",
+        "conf": 0.824,
+        "w": 334
+      }
+    ],
+    "detected_total": 8,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.378
+      },
+      {
+        "cls": 0,
+        "conf": 0.273
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 32,
+    "t": 708.64,
+    "span_s": 5.1,
+    "motion": 0.0472,
+    "moved_box": [
+      1424,
+      360,
+      2144,
+      828
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.924,
+        "w": 659
+      }
+    ],
+    "detected_total": 8,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.371
+      },
+      {
+        "cls": 0,
+        "conf": 0.327
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 33,
+    "t": 718.14,
+    "span_s": 3.9,
+    "motion": 0.0316,
+    "moved_box": [
+      1600,
+      60,
+      2240,
+      564
+    ],
+    "detected_on_moved": [
+      {
+        "label": "truck",
+        "conf": 0.581,
+        "w": 536
+      },
+      {
+        "label": "truck",
+        "conf": 0.409,
+        "w": 497
+      }
+    ],
+    "detected_total": 8,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.299
+      },
+      {
+        "cls": 0,
+        "conf": 0.296
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 34,
+    "t": 758.13,
+    "span_s": 2.7,
+    "motion": 0.026,
+    "moved_box": [
+      1616,
+      180,
+      2208,
+      576
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.886,
+        "w": 493
+      },
+      {
+        "label": "car",
+        "conf": 0.778,
+        "w": 333
+      }
+    ],
+    "detected_total": 8,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.481
+      },
+      {
+        "cls": 0,
+        "conf": 0.267
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 35,
+    "t": 771.43,
+    "span_s": 6.7,
+    "motion": 0.0209,
+    "moved_box": [
+      2080,
+      936,
+      2528,
+      1416
+    ],
+    "detected_on_moved": [],
+    "detected_total": 7,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.848
+      },
+      {
+        "cls": 0,
+        "conf": 0.467
+      },
+      {
+        "cls": 0,
+        "conf": 0.293
+      }
+    ],
+    "truth": "not-a-vehicle"
+  },
+  {
+    "event": 36,
+    "t": 783.53,
+    "span_s": 5.3,
+    "motion": 0.0516,
+    "moved_box": [
+      1280,
+      420,
+      2128,
+      948
+    ],
+    "detected_on_moved": [
+      {
+        "label": "truck",
+        "conf": 0.613,
+        "w": 791
+      }
+    ],
+    "detected_total": 8,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.447
+      },
+      {
+        "cls": 0,
+        "conf": 0.368
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 37,
+    "t": 808.63,
+    "span_s": 9.9,
+    "motion": 0.0465,
+    "moved_box": [
+      1488,
+      408,
+      2176,
+      852
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.921,
+        "w": 625
+      }
+    ],
+    "detected_total": 9,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.46
+      },
+      {
+        "cls": 0,
+        "conf": 0.355
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 38,
+    "t": 871.12,
+    "span_s": 2.9,
+    "motion": 0.0562,
+    "moved_box": [
+      1408,
+      360,
+      2160,
+      876
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.924,
+        "w": 706
+      }
+    ],
+    "detected_total": 9,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.341
+      },
+      {
+        "cls": 0,
+        "conf": 0.266
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 39,
+    "t": 885.62,
+    "span_s": 7.5,
+    "motion": 0.0493,
+    "moved_box": [
+      1472,
+      324,
+      2272,
+      828
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.889,
+        "w": 638
+      }
+    ],
+    "detected_total": 8,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.401
+      },
+      {
+        "cls": 0,
+        "conf": 0.298
+      }
+    ],
+    "truth": "vehicle"
+  },
+  {
+    "event": 40,
+    "t": 892.82,
+    "span_s": 2.9,
+    "motion": 0.0397,
+    "moved_box": [
+      1392,
+      432,
+      2096,
+      852
+    ],
+    "detected_on_moved": [
+      {
+        "label": "car",
+        "conf": 0.918,
+        "w": 678
+      }
+    ],
+    "detected_total": 9,
+    "non_vehicle_boxes": [
+      {
+        "cls": 0,
+        "conf": 0.367
+      },
+      {
+        "cls": 0,
+        "conf": 0.328
+      }
+    ],
+    "truth": "vehicle"
+  }
+]

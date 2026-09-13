@@ -1,0 +1,15 @@
+/target
+/models
+/data
+/trained
+/sets
+/var
+/references
+/tests/e2e/data
+/metermate.local.toml
+
+__pycache__/
+.pytest_cache/
+.venv/
+.ruff_cache/
+

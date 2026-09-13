@@ -1,0 +1,33 @@
+[package]
+name = "metermate"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.6", features = ["derive"] }
+fast_image_resize = "6.1.0"
+jpeg-encoder = "0.7.1"
+# the counterpart to jpeg-encoder, and the one thing that stood between the
+# labelling and eval tooling and living in this binary: a harvested crop is a
+# jpeg on disk, and embedding it means getting pixels back. pure rust, one
+# transitive dependency, and off the hot path -- ffmpeg hands the pipeline raw
+# frames, so nothing in the detect or gate path decodes a jpeg.
+zune-jpeg = "0.5.15"
+# already in the tree behind socket2 and ring; the reason it is now a direct
+# one is `localtime_r`, the only call that knows the deployment's timezone and
+# its daylight saving. std hands out epoch seconds and no local time at all,
+# and reimplementing tzfile parsing is not the ~50 lines a new crate has to
+# beat.
+libc = "0.2"
+ort = "2.0.0-rc.13"
+rumqttc = { version = "0.25.1", default-features = false }
+serde = { version = "1.0.229", features = ["derive"] }
+tiny_http = "0.12.0"
+toml = "1.1.6"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+# the http client behind `[ntfy]`. already in the tree as a build dependency of
+# ort-sys, and the smallest thing that speaks https: rustls and webpki-roots
+# rather than a system openssl the deployment would have to carry.
+ureq = "3.4"
