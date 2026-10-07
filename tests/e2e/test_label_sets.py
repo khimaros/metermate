@@ -24,11 +24,15 @@ import pytest
 
 from labelling import (
     AT,
+    PLAIN,
     SPACING_MS,
     SUBJECT,
+    VERDICTS,
     Labelling,
     blank_crops,
     build_config,
+    build_harvest,
+    embed,
     plain_name,
     write_cache,
 )
@@ -185,3 +189,60 @@ def test_a_tree_is_embedded_once(binary, tmp_path, ffmpeg):
         run.post("/refresh")
         assert "embedding" not in run.output(), run.output()
     assert snapshot(tree) == first
+
+
+@pytest.mark.parametrize("named", [True, False], ids=["two --harvest", "the configured pair"])
+def test_the_harvest_and_the_sets_are_labelled_together(binary, tmp_path, ffmpeg, tree, named):
+    """**one session over everything a retrain reads.**
+
+    `--retrain` trains over `[harvest] dir` and `[train] sets`, so a labelling
+    page that opens one of them leaves the other to a second session somebody
+    has to remember. naming both opens both, and naming neither means the pair
+    the config already holds.
+    """
+    harvest = build_harvest(tmp_path, ffmpeg)
+    if named:
+        run = Labelling(binary, build_config(tmp_path), [harvest, tree])
+    else:
+        run = Labelling(binary, build_config(tmp_path, harvest, tree), None)
+    with run.ready():
+        queue = run.queue()
+        assert queue["total"] == VERDICTS + PLAIN + len(SETS) * PER_SET, queue
+
+        # each answer goes home: the harvest's beside the harvest, a set's in the set.
+        live = plain_name(AT + VERDICTS * SPACING_MS)
+        cut = names_of(1)[0]
+        for name in (live, cut):
+            assert run.get(f"/crop/{name}")[0] == 200, name
+            assert run.post("/label", f"{name} {SUBJECT} random")["ok"]
+        assert rows(tmp_path) == {live: (SUBJECT, "random")}
+        assert rows(set_dir(tree, 1)) == {cut: (SUBJECT, "random")}
+        assert not (set_dir(tree, 0) / "labels.txt").exists()
+
+
+def test_embedding_ahead_leaves_the_page_nothing_to_embed(binary, tmp_path, ffmpeg):
+    """**`--embed` pays for the embedder so opening the page does not.**
+
+    it walks the harvest and the sets the way the page does and writes each
+    crop's vector beside the crop. doing it again writes nothing, and the page
+    that opens afterwards finds every crop already there.
+    """
+    tree = build_tree(tmp_path, ffmpeg, seeded=False)
+    harvest = tmp_path / "crops"
+    live = [plain_name(AT + (900 + i) * SPACING_MS) for i in range(PER_SET)]
+    blank_crops(harvest, ffmpeg, live)
+    config = build_config(tmp_path, harvest, tree)
+
+    assert "embedding" in embed(binary, config, [])
+    first = snapshot(tmp_path)
+    caches = ["embeddings.bin"] + [f"sets/{subject}/{id}/embeddings.bin" for subject, id in SETS]
+    assert sorted(first) == sorted(caches), sorted(first)
+    assert all(name.encode() in first["embeddings.bin"] for name in live)
+
+    assert "embedding" not in embed(binary, config, [])
+    assert snapshot(tmp_path) == first
+
+    with Labelling(binary, config, None).ready() as run:
+        assert run.queue()["total"] == (len(SETS) + 1) * PER_SET
+        assert "embedding" not in run.output(), run.output()
+    assert snapshot(tmp_path) == first

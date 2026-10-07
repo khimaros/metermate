@@ -654,13 +654,19 @@ only the start is allowed and means "to the end of the clip".
 then, whenever it suits:
 
     make prepare     # cut every marked passage into sets/<subject>/<clip>-<window>/
-    make label       # label what was cut: the labelling page over all of sets/
-    make retrain     # embed and train every configured subject over the lot
+    make embed       # embed the harvest and every set, ahead of the browser
+    make label       # label the lot: one page over the harvest and all of sets/
+    make retrain     # train every configured subject over the lot
 
-or `metermate --prepare`, `metermate --label go4 --harvest sets/` and
-`metermate --retrain` directly, which is what the targets run; `make label`
-takes `SUBJECT=` and `SETS=` for another subject or a single set. **the middle
-step is not optional**: a cut passage arrives unlabelled and an unlabelled crop
+or `metermate --prepare`, `metermate --embed`, `metermate --label go4` and
+`metermate --retrain` directly, which is what the targets run. `embed` and
+`label` read what `retrain` reads, `[harvest] dir` and every set under
+`[train] sets`, so what gets trained on is what was put in front of somebody;
+`SUBJECT=` picks another subject and `SETS="sets/waymo"` narrows either to the
+roots it names. `make embed` is the embedder run where nobody waits on it: the
+page embeds whatever is still missing when it opens, so leaving the step out
+costs a wait and nothing else, and running it twice embeds nothing. **`make
+label` is not optional**: a cut passage arrives unlabelled and an unlabelled crop
 is counted as street, so a retrain straight after a prepare scores the subject
 that was just cut as a false positive. **`--prepare` drains the queue**: a passage it cuts stops being
 marked, so the events tab shows what is still waiting rather than everything
@@ -674,14 +680,15 @@ retrain quietly loses the negatives that stopped the last false positive. a
 subject that cannot be trained yet is reported and the others still are.
 
 so a round is: label crops on the crops tab, mark passages on the events tab,
-`make prepare`, `make label` for the new crops, `make retrain`, restart the
-pipeline.
+`make prepare`, `make embed`, `make label` for the new crops, `make retrain`,
+restart the pipeline.
 
 ### labelling the harvest, and asking whether stage 2 works
 
 the binary does this itself, so it runs wherever metermate runs, on the harvest
 that is already there, with no second toolchain and nothing to copy:
 
+    metermate --embed            # embed the harvest and the sets ahead of the page
     metermate --label waymo      # browser at localhost:8421, press t to train
     metermate --measure waymo    # the same numbers, on the command line
     metermate --train waymo      # write the reference file the classifier loads
@@ -710,18 +717,20 @@ follows it, so the bar reads as how much is left where. a decision made *since*
 the pool was drawn stays on screen until the pool is next drawn, so a misclick
 can be clicked back rather than vanishing under the pointer.
 
-**more** asks the directory again and offers another pool, without measuring
-anything. the page shows a pool at a time out of a harvest that keeps growing while
+**more** offers another pool, without measuring anything. while crops already
+embedded are still undecided the pool comes from those and nothing is embedded;
+once they all have an answer it asks the directory again and embeds what
+arrived. the page shows a pool at a time out of a harvest that keeps growing while
 somebody is labelling it, and the only way back to the rest of it used to be `t`, which
 also runs the embedder over every crop in the harvest and reports a curve nobody asked
 for. answers given on the crops tab in the meantime are picked up as well, because both
 ports read the same `labels.txt`.
 
-the page is rarely the thing that notices: `--label` walks the harvest and embeds what
-is new every 60 seconds by itself, `--label-ingest 0` to stop it, because embedding is
-the slow half and by the time anybody presses the button the crops should already be
-there. what no pass ever does is redraw the pool you are working through: which pool a
-crop came from is the provenance of its label.
+nothing is taken in unless somebody asks: `make embed`, and **more** once the embedded
+crops are used up, are the two ways new crops get embedded. `--label-ingest 60` has `--label` walk the
+harvest and embed what is new every 60 seconds by itself, for a session left open
+beside a pipeline all evening. what no pass ever does is redraw the pool you are
+working through: which pool a crop came from is the provenance of its label.
 
 every tile also carries a small **copy** button for that crop's filename, which
 is what `--gather`, a line of `labels.txt` and a grep of the harvest all take.
@@ -787,15 +796,32 @@ the sets cut from video train together:
 
     metermate --train go4 --harvest data/crops --harvest sets/
 
-labelling walks a tree the same way, so every set under it is one session:
+labelling walks the same roots the same way, so the harvest and every set are
+one session. with no `--harvest` it takes `[harvest] dir` and `[train] sets`
+together, and `--embed` fills in their vectors ahead of it:
 
-    metermate --label go4 --harvest sets/
+    metermate --embed
+    metermate --label go4
+    metermate --label go4 --harvest sets/     # the sets alone
 
 each label is written to the `labels.txt` beside the crop it names, and each
 vector to the `embeddings.bin` beside it, so a set still travels on its own. a
 crop two sets share is offered once and labelled in both. running it again
 changes nothing: no crop is embedded twice, and an answer repeated leaves every
 file as it was.
+
+to ask whether another embedder would do better, `tools/embed_remote.py` copies
+a set, embeds its crops through any openai-style `/v1/embeddings` server (a
+llama.cpp `llama-server --embeddings --mmproj ...` is one) and writes the cache
+`--measure` reads, so the candidate is scored by the code that scores the
+shipped model:
+
+    uv run tools/embed_remote.py http://host:7860/v1/embeddings \
+        sets/go4/20260915 data/candidates/<model> --model <model>
+    metermate --measure go4 --harvest data/candidates/<model>
+
+keep the copy out of `sets/`: a cache of another width beside the real ones is
+refused, and the tree stops opening.
 
 it writes `trained/<subject>/references.txt` and `trained/<subject>/negatives.txt`.
 **the negatives belong to the subject, not to the street**, so training one

@@ -119,14 +119,17 @@ def build_harvest(tmp_path: Path, ffmpeg: str) -> Path:
     return dir
 
 
-def build_config(tmp_path: Path) -> Path:
+def build_config(tmp_path: Path, harvest: Path | None = None, sets: Path | None = None) -> Path:
     """`--label` reads crops off disk: no camera, no stream, no detector.
 
     `references` is always set, because the page can write `trained/` and the
     default is relative to wherever the test runs -- which is the repository.
+    `harvest` and `sets` are for a run that names no `--harvest` and so reads
+    the configured pair, whose defaults are relative the same way.
     """
     path = tmp_path / "metermate.toml"
-    path.write_text(f"""
+    path.write_text(
+        f"""
 [camera]
 host = "127.0.0.1"
 username = "u"
@@ -135,21 +138,46 @@ password = "p"
 [classifier]
 model = "{REPO / "models" / "embedder.onnx"}"
 references = "{tmp_path / "trained"}"
-""")
+"""
+        + (f'\n[harvest]\ndir = "{harvest}"\n' if harvest else "")
+        + (f'\n[train]\nsets = "{sets}"\n' if sets else "")
+    )
     return path
 
 
+def harvest_args(harvests: list[Path]) -> list[str]:
+    """`--harvest` once per root, and not at all for the configured pair."""
+    return [arg for h in harvests for arg in ("--harvest", str(h))]
+
+
+def embed(binary: Path, config: Path, harvests: list[Path]) -> str:
+    """run `--embed` to the end and hand back everything it said."""
+    done = subprocess.run(
+        [str(binary), "--config", str(config), *harvest_args(harvests), "--embed"],
+        capture_output=True,
+        text=True,
+        timeout=READY_TIMEOUT_S,
+        check=False,
+    )
+    assert done.returncode == 0, done.stdout + done.stderr
+    return done.stdout + done.stderr
+
+
 class Labelling:
-    """the labelling server, against a harvest on disk."""
+    """the labelling server, against the harvests on disk.
+
+    `harvest` is one root, several, or none for the configured pair.
+    """
 
     def __init__(
         self,
         binary: Path,
         config: Path,
-        harvest: Path,
+        harvest: Path | list[Path] | None,
         subject: str = SUBJECT,
         ingest: int | None = None,
     ):
+        harvests = [harvest] if isinstance(harvest, Path) else harvest or []
         self.port = free_port()
         self.log = config.parent / "label.log"
         self.handle = self.log.open("w")
@@ -158,8 +186,7 @@ class Labelling:
                 str(binary),
                 "--config",
                 str(config),
-                "--harvest",
-                str(harvest),
+                *harvest_args(harvests),
                 "--label",
                 subject,
                 "--label-addr",
@@ -171,7 +198,8 @@ class Labelling:
             stdout=self.handle,
             stderr=subprocess.STDOUT,
         )
-        self.labels = harvest.parent / "labels.txt"
+        # the first root's, which is the only one when a test names one.
+        self.labels = (harvests[0] if harvests else config).parent / "labels.txt"
 
     def output(self) -> str:
         self.handle.flush()
@@ -206,7 +234,11 @@ class Labelling:
             if self.get("/queue")[0] == 200:
                 return self
             time.sleep(POLL_S)
-        pytest.fail(f"no queue within {READY_TIMEOUT_S}s: {self.output()}")
+        # stopped here, because `with Labelling(...).ready()` has not entered the
+        # block yet and so would never reach `__exit__`.
+        said = self.output()
+        self.stop()
+        pytest.fail(f"no queue within {READY_TIMEOUT_S}s: {said}")
 
     def entries(self) -> dict[str, tuple[str, str]]:
         """`labels.txt` as `{crop: (truth, via)}`, which is the whole artifact."""
@@ -223,6 +255,9 @@ class Labelling:
         return self
 
     def __exit__(self, *exc):
+        self.stop()
+
+    def stop(self) -> None:
         if self.proc.poll() is None:
             self.proc.terminate()
             try:

@@ -1612,8 +1612,14 @@ are read from its own directory, names are sorted across all of them by timestam
 so passage grouping does not invent a boundary at each seam, and a crop two sets
 disagree about is refused rather than resolved by ordering.
 
-`--label` reads a tree through the same walk (`label::loaded`) and writes back
-per set. `Vectors` is one table with no path of its own: `ensure` appends to the
+`--label` reads its roots through the same walk (`label::loaded`) and writes back
+per set. it takes any number of `--harvest` roots and, given none, the pair
+`--retrain` reads (`with_sets`: `[harvest] dir` and `[train] sets`), so what is
+trained on is what was offered for labelling. `--embed` is that walk with
+nothing after it (`label::embed`): the embedder is the slow half of opening the
+page and needs nobody watching, so `make embed` runs it ahead and the page
+opens on vectors already written. the page still embeds what it finds missing,
+which keeps the step an optimisation rather than a precondition. `Vectors` is one table with no path of its own: `ensure` appends to the
 cache beside the directory a crop was found in, so the merged view is writable
 without collapsing every set's vectors into one file. a label goes to every set
 holding its crop (`Session::save_labels`), since a crop labelled in one of two
@@ -1691,15 +1697,21 @@ harvesting. `--label` usually runs as a second process beside that pipeline, so 
 crop the button exists to find is one that arrived behind its back. `harvest::forget` is
 the one call that says so, and a refresh makes it before walking.
 
-what a refresh costs is the other half. `cache.ensure` embeds only what the cache has
+what a refresh costs is the other half, and it is only paid when there is nothing
+else to offer: while any embedded crop is undecided (`undecided`) a refresh re-reads
+the labels and rebuilds the pool from what is in memory, without walking or embedding.
+embedding an evening's arrivals on every press was minutes of waiting for crops that
+sat behind the ones already on hand. when it does walk, `cache.ensure` embeds only what the cache has
 never seen and the cache file lives beside the harvest, so the button can be pressed
 twice without paying twice -- and the first press after an evening of harvesting is not
 instant, which is why the page reads `reading...` while it works rather than looking
 dead and getting pressed again.
 
-the same call is made on a clock, every 60 seconds and `--label-ingest 0` to stop it,
-because an evening of harvesting should not be waiting on a click to be worth looking
-at. what the clock does not do is rebuild the pool, and that is the whole split: which
+the same call can be made on a clock, `--label-ingest <seconds>`, so an evening of
+harvesting is not waiting on a click to be worth looking at. it is off by default: a
+pass holds the state lock while it embeds, so a click made during one waits on crops
+nobody asked for, and `--embed` now does that work ahead of the session. what the clock
+does not do is rebuild the pool, and that is the whole split: which
 pool a crop was offered from is the provenance of its label and decides what may be
 measured on it, so a pool rebuilt underneath an open page would misfile the next click.
 the button rebuilds, because pressing it is somebody saying the pool on screen is spent.

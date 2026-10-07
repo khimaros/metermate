@@ -506,13 +506,14 @@ references = "trained"
 # everything before them happens in the browser: crops are labelled on the
 # preview's crops tab, passages are marked on its events tab. then
 #
-#   metermate --prepare                      # cut every marked passage into `sets`
-#   metermate --label go4 --harvest sets/    # label what was cut
-#   metermate --retrain                      # train every subject over the harvest and `sets`
+#   metermate --prepare      # cut every marked passage into `sets`
+#   metermate --embed        # embed the harvest and `sets`, ahead of the browser
+#   metermate --label go4    # label the harvest and `sets` in one page
+#   metermate --retrain      # train every subject over the harvest and `sets`
 #
 # apart because the costs are: the first is a detector pass per passage, the
-# second is a person looking, the third embeds and measures everything labelled
-# so far. a cut passage is unlabelled, and unlabelled is counted as street, so
+# second is the embedder over every crop it has not seen, the third is a person
+# looking, the fourth measures everything labelled so far. a cut passage is unlabelled, and unlabelled is counted as street, so
 # the second is not optional.
 [train]
 # where a cut passage lands, and where --retrain looks besides [harvest] dir.

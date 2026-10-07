@@ -7,6 +7,7 @@ than the camera, so the suite is deterministic and runs anywhere (r5.5).
 import json
 import os
 import shutil
+import signal
 import subprocess
 from pathlib import Path
 
@@ -32,6 +33,37 @@ def binary() -> Path:
     if not BINARY.exists():
         pytest.fail(f"{BINARY} missing; run `make build` first")
     return BINARY
+
+
+def left_running() -> list[int]:
+    """the binaries this process started that are still alive."""
+    found = []
+    for stat in Path("/proc").glob("[0-9]*/stat"):
+        try:
+            # the name is in brackets and may hold spaces; the parent follows it.
+            parent = int(stat.read_text().rsplit(")", 1)[1].split()[1])
+            started = (stat.parent / "cmdline").read_bytes().split(b"\0")[0].decode()
+        except (OSError, ValueError, IndexError):
+            continue
+        if parent == os.getpid() and started == str(BINARY):
+            found.append(int(stat.parent.name))
+    return found
+
+
+@pytest.fixture(autouse=True)
+def nothing_left_running():
+    """**a test that starts the binary stops it.**
+
+    a server a test forgot goes on holding a port and, for a labelling session,
+    an embedder, long after the suite has reported -- and nothing fails. so the
+    stray is killed here and the test that left it is the one that says so.
+    """
+    yield
+    strays = left_running()
+    for pid in strays:
+        os.kill(pid, signal.SIGKILL)
+        os.waitpid(pid, 0)
+    assert not strays, f"left {len(strays)} metermate running: {strays}"
 
 
 @pytest.fixture(scope="session")

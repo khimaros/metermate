@@ -82,17 +82,27 @@ struct Args {
     // labelling and measuring are the same loop, so they live in the binary
     // rather than in a second toolchain: they run wherever metermate runs, on
     // the harvest that is already there, with nothing to mirror (r5.5).
-    /// label the harvest for this subject in a browser, and train from it
+    /// label the harvest and the sets for this subject in a browser, and train from it
     #[arg(long, value_name = "SUBJECT")]
     label: Option<String>,
+
+    // the embedder is the slow half of opening the labelling page, and it
+    // needs nobody watching: run ahead, the page opens on crops already
+    // embedded rather than on a browser waiting for them.
+    /// embed every crop of the harvest and the sets ahead of `--label`, and exit
+    #[arg(long)]
+    embed: bool,
 
     /// address for `--label` [default: the preview address, port + 1]
     #[arg(long)]
     label_addr: Option<String>,
 
-    /// seconds between looks at the harvest by `--label`; 0 stops looking
-    /// [default: 60]
-    #[arg(long, value_name = "SECONDS", default_value_t = 60)]
+    // off unless asked for: a pass holds the session while it embeds, so a
+    // click made during one waits on crops nobody asked to see yet. `--embed`
+    // and the page's **more** button are the two ways in that somebody chose.
+    /// seconds between looks at the harvest by `--label`; 0 looks only when
+    /// asked [default: 0]
+    #[arg(long, value_name = "SECONDS", default_value_t = 0)]
     label_ingest: u64,
 
     /// measure how well the harvest's labels separate this subject, and exit
@@ -126,7 +136,11 @@ struct Args {
     // is not always the configured one: an eval set staged from recorded clips
     // is a harvest too. measuring and training take more than one, so a
     // deployment's own harvest and the sets cut from video train together.
-    /// crops to label, measure, train on or gather from [default: `[harvest] dir`]
+    // labelling and embedding take both without being told: a round covers
+    // whatever `--retrain` will read, and naming half of it is how the other
+    // half goes unlabelled.
+    /// crops to label, embed, measure, train on or gather from [default:
+    /// `[harvest] dir`, and `[train] sets` as well for `--label` and `--embed`]
     #[arg(long, value_name = "DIR")]
     harvest: Vec<PathBuf>,
 
@@ -287,10 +301,38 @@ fn prepare(cfg: &config::Config) -> Result<()> {
         cut += 1;
     }
     println!(
-        "prepared {cut} selection{}, {already} already cut. label them at \
-         `metermate --label {subject} --harvest {}`",
+        "prepared {cut} selection{}, {already} already cut. embed them with \
+         `metermate --embed`, then label them at `metermate --label {subject}`",
         if cut == 1 { "" } else { "s" },
-        cfg.train.sets.display()
+    );
+    Ok(())
+}
+
+/// the harvests named, and the sets beside them.
+///
+/// the harvest is where the deployment's own rejected verdicts are and the
+/// sets are where the dense passages are; both halves are needed and
+/// forgetting one is how a retrain quietly loses the negatives that stopped
+/// the last false positive. labelling and embedding read the same pair, or
+/// what was trained on is not what anybody looked at.
+fn with_sets(cfg: &config::Config, harvests: &[PathBuf]) -> Vec<PathBuf> {
+    let mut roots = harvests.to_vec();
+    if cfg.train.sets.is_dir() {
+        roots.push(cfg.train.sets.clone());
+    }
+    roots
+}
+
+/// embed whatever the harvest and the sets hold that no cache has seen.
+///
+/// idempotent by the cache: a vector is written once beside its crop, so a
+/// second run walks the listings and says there was nothing to do.
+fn embed(cfg: &config::Config, roots: &[PathBuf]) -> Result<()> {
+    let (sets, crops, fresh) = label::embed(roots, &cfg.classifier.model)?;
+    println!(
+        "{crops} crops in {sets} set{}, {fresh} newly embedded. label them at \
+         `metermate --label <subject>`",
+        if sets == 1 { "" } else { "s" },
     );
     Ok(())
 }
@@ -298,16 +340,9 @@ fn prepare(cfg: &config::Config) -> Result<()> {
 /// train every configured subject on everything labelled since.
 ///
 /// the hand version is a `--train <subject> --harvest data/crops --harvest
-/// sets/` per subject, and the subject list is in the config already. the
-/// harvest is where the deployment's own rejected verdicts are and the sets
-/// are where the dense passages are; both halves are needed and forgetting
-/// one is how a retrain quietly loses the negatives that stopped the last
-/// false positive.
+/// sets/` per subject, and the subject list is in the config already.
 fn retrain(cfg: &config::Config, harvests: &[PathBuf], centre: bool) -> Result<()> {
-    let mut roots = harvests.to_vec();
-    if cfg.train.sets.is_dir() {
-        roots.push(cfg.train.sets.clone());
-    }
+    let roots = with_sets(cfg, harvests);
     println!(
         "training {} over {}",
         cfg.subject_names().join(", "),
@@ -453,10 +488,20 @@ fn main() -> Result<()> {
     // labelling and measuring read crops already on disk. no camera, no stream
     // and no pipeline, which is also why they load the embedder: the live path
     // must never be made to hold 351 MB in case somebody opens a page.
-    let harvests = if args.harvest.is_empty() {
-        vec![cfg.harvest.dir.clone()]
-    } else {
+    let named = !args.harvest.is_empty();
+    let harvests = if named {
         args.harvest
+    } else {
+        vec![cfg.harvest.dir.clone()]
+    };
+    // what `--label` and `--embed` cover: exactly what was named, and otherwise
+    // everything `--retrain` reads.
+    let round = || {
+        if named {
+            harvests.clone()
+        } else {
+            with_sets(&cfg, &harvests)
+        }
     };
 
     if let Some(clip) = args.dense {
@@ -474,16 +519,16 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    if args.embed {
+        return embed(&cfg, &round());
+    }
+
     if let Some(subject) = args.label {
-        anyhow::ensure!(
-            harvests.len() == 1,
-            "--label works on one harvest; give --harvest once"
-        );
         let addr = args
             .label_addr
             .unwrap_or_else(|| default_label_addr(&args.preview));
         let session = label::server::Session::open(
-            &harvests[0],
+            &round(),
             &cfg.classifier.model,
             &subject,
             &cfg.classifier.references,

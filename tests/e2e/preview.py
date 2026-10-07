@@ -82,7 +82,11 @@ class Preview:
             if get(self.port, on)[0] == 200:
                 return self
             time.sleep(0.5)
-        raise AssertionError(f"the preview never answered:\n{self.output()}")
+        # stopped here, because `with Preview(...).ready()` has not entered the
+        # block yet and so would never reach `__exit__`.
+        said = self.output()
+        self.__exit__()
+        raise AssertionError(f"the preview never answered:\n{said}")
 
     def crops(self) -> dict:
         return json.loads(get(self.port, "/crops")[1])

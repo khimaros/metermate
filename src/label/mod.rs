@@ -814,6 +814,22 @@ pub fn measure(
     Ok((eval::measure(&labels, &cache, &names, opts), labels))
 }
 
+/// embed every crop under `harvests` that no cache holds yet, and nothing else.
+///
+/// **the slow half of opening the labelling page, paid ahead of it.** the page
+/// embeds what it finds missing before it serves anything, which on a tree of
+/// freshly cut sets is minutes of a browser showing nothing. roots that hold no
+/// crops yet are a round with nothing cut, not an error.
+///
+/// returns (sets walked, crops found, crops embedded by this run).
+pub fn embed(harvests: &[PathBuf], model: &Path) -> Result<(usize, usize, usize)> {
+    let dirs = sets_under(harvests);
+    let mut cache = merged(&dirs)?;
+    let before = cache.len();
+    let names = scan(&dirs, model, &mut cache)?;
+    Ok((dirs.len(), names.len(), cache.len() - before))
+}
+
 /// the labels, the vectors and the crop names, with the cache backfilled.
 ///
 /// shared by measuring and training rather than written twice: they must agree

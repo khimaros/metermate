@@ -506,8 +506,8 @@ async function undoSweep() {
 async function more(b) {
   const said = b.textContent;
   b.disabled = true;
-  // the refresh may be embedding crops it has never seen, which takes seconds rather
-  // than nothing -- and a button that looks dead while it is working gets pressed again.
+  // once every embedded crop is decided the refresh embeds what has arrived since,
+  // which takes seconds rather than nothing -- and a button that looks dead while it is working gets pressed again.
   b.textContent = "reading...";
   try {
     await load(await (await fetch("/refresh", {method: "POST"})).json());

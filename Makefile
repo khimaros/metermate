@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := build
 .PHONY: build dev run test test-e2e eval transits score endtoend precommit fmt lint clean \
-	models record logo prepare label retrain
+	models record logo prepare embed label retrain
 
 CARGO ?= cargo
 BIN   := target/release/metermate
@@ -72,31 +72,43 @@ endtoend: build
 	uv run --with numpy --with scipy --python 3.12 python tools/endtoend.py \
 		$(E2E)/fixtures/labels/$(STAMP).json data/eval/$(STAMP)-sub.mp4 $(E2E_ARGS)
 
-# the three steps of a labelling round, in the order they are run.
+# the four steps of a labelling round, in the order they are run.
 #
 # everything before these happens in the browser: crops are labelled on the
 # preview's crops tab and passages are marked on its events tab. these are
 # what turns that into a trained file, and they are apart because the costs
-# are: `prepare` is a detector pass per marked passage, `label` is a person
-# looking at what it cut, `retrain` is embedding and measuring everything
-# labelled so far.
+# are: `prepare` is a detector pass per marked passage, `embed` is the
+# embedder over every crop it has not seen, `label` is a person looking,
+# `retrain` is measuring everything labelled so far.
+#
+# `embed` and `label` cover the same ground `retrain` does: `[harvest] dir`
+# and every set under `[train] sets`. `label` embeds whatever `embed` was
+# not run for, so skipping it costs a wait before the page opens and nothing
+# else.
 #
 # **`label` is not optional.** a cut passage arrives unlabelled, and an
 # unlabelled crop is counted as street: a retrain straight after a prepare
 # scores the go-4 that was just cut as a false positive.
 #
 #   make prepare    # cut every marked passage into sets/
-#   make label      # label what was cut, every set at once, in the browser
+#   make embed      # embed the harvest and every set, ahead of the browser
+#   make label      # label the harvest and every set at once, in the browser
 #   make retrain    # then train every configured subject over the lot
 #
+# SETS narrows `embed` and `label` to the roots it names:
 #   make label SUBJECT=waymo SETS=sets/waymo
+#   make embed SETS="data/crops sets/go4"
 SUBJECT ?= go4
-SETS    ?= sets
+SETS    ?=
+ROOTS   := $(addprefix --harvest ,$(SETS))
 prepare: build
 	$(BIN) --prepare
 
+embed: build
+	$(BIN) --embed $(ROOTS)
+
 label: build
-	$(BIN) --label $(SUBJECT) --harvest $(SETS)
+	$(BIN) --label $(SUBJECT) $(ROOTS)
 
 retrain: build
 	$(BIN) --retrain

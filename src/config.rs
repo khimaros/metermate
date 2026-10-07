@@ -1215,8 +1215,8 @@ fn default_ntfy_priority() -> String {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TrainCfg {
-    /// where `--prepare` cuts a selection into, and where `--retrain` looks
-    /// for sets besides the live harvest.
+    /// where `--prepare` cuts a selection into, and where `--embed`, `--label`
+    /// and `--retrain` look for sets besides the live harvest.
     #[serde(default = "default_sets_dir")]
     pub sets: PathBuf,
 }

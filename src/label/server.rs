@@ -43,8 +43,9 @@ const SECOND_LOOK_OFFERED: usize = 50;
 const PAGE: &str = include_str!("index.html");
 
 pub struct Session {
-    /// what `--harvest` named: one directory of crops, or a tree of sets.
-    root: PathBuf,
+    /// what `--harvest` named: directories of crops and trees of sets, which
+    /// is the live harvest beside `[train] sets` when it named nothing.
+    roots: Vec<PathBuf>,
     /// the crop directories under it, each with its own labels and vector
     /// cache beside it. apart from the state so a crop is served while a pass
     /// over the harvest holds that lock to embed.
@@ -91,17 +92,16 @@ struct Offered {
 
 impl Session {
     pub fn open(
-        harvest: &Path,
+        roots: &[PathBuf],
         model: &Path,
         subject: &str,
         references: &Path,
         confirm: (u32, u32),
     ) -> Result<Self> {
-        let roots = [harvest.to_path_buf()];
-        // the walk `--train` makes, so a tree of sets is labelled as the one
-        // harvest it is trained as.
-        let (labels, cache, names) = super::loaded(&roots, model)?;
-        let sets = super::sets_under(&roots);
+        // the walk `--train` makes, so the harvest and a tree of sets are
+        // labelled as the one harvest they are trained as.
+        let (labels, cache, names) = super::loaded(roots, model)?;
+        let sets = super::sets_under(roots);
         // what is already known, so a session that is about to measure nothing
         // says so before the browser does. a subject named with a typo is the
         // common case and looks identical to one with no examples yet.
@@ -142,7 +142,7 @@ impl Session {
         );
         let queue = build_queue(&names, &labels, &cache, subject, &review, &[], &verdicts);
         Ok(Self {
-            root: harvest.to_path_buf(),
+            roots: roots.to_vec(),
             sets: Mutex::new(sets),
             model: model.to_path_buf(),
             references: references.to_path_buf(),
@@ -163,10 +163,11 @@ impl Session {
         })
     }
 
-    /// serve the page, taking in new crops of the harvest every `every`.
+    /// serve the page, taking in new crops of the harvest every `every` when
+    /// that is not zero.
     ///
     /// a pass is a directory walk plus whatever the cache has never seen, and the
-    /// embedder is the slow part of noticing -- so the noticing happens on a clock
+    /// embedder is the slow part of noticing -- so the noticing can happen on a clock
     /// rather than when somebody presses something. what it does *not* do is rebuild
     /// the pool, which is the one thing that would be rude to do under an open page.
     pub fn serve(self, addr: &str, every: std::time::Duration) -> Result<()> {
@@ -498,13 +499,13 @@ impl Session {
         // the ones that arrived inside them: the pipeline writes them from another
         // process, so nothing would have bumped the generation this one reads.
         let known = self.sets.lock().unwrap().clone();
-        for dir in known.iter().chain([&self.root]) {
+        for dir in known.iter().chain(&self.roots) {
             crate::harvest::forget(dir);
         }
         // walked again, because `--prepare` cuts a new set into the tree while the
         // page is open. a set new to this session brings the vectors it already has,
         // or its crops would be embedded a second time into the cache beside them.
-        let sets = super::sets_under(std::slice::from_ref(&self.root));
+        let sets = super::sets_under(&self.roots);
         let fresh: Vec<PathBuf> = sets
             .iter()
             .filter(|d| !known.contains(d))
@@ -529,9 +530,20 @@ impl Session {
     /// button, which runs the embedder, measures the whole label file and reports a
     /// curve -- all of which is worth doing, and none of it asked for by "show me
     /// more".
+    ///
+    /// **nor embedding anything while embedded crops are still undecided.** the
+    /// embedder over an evening's harvest is minutes, and paying it on every
+    /// press buys crops that sit behind the ones already waiting. the labels are
+    /// re-read either way, since the live page answers into the same files; the
+    /// directory is walked again only once what is embedded is used up.
     fn refresh(&self) -> Result<String> {
         let mut state = self.state.lock().unwrap();
-        let fresh = self.take_in(&mut state)?;
+        let sets = self.sets.lock().unwrap().clone();
+        state.labels = super::labels_of(&sets)?;
+        let fresh = match undecided(&state.names, &state.labels, &state.cache) {
+            0 => self.take_in(&mut state)?,
+            _ => 0,
+        };
         state.queue = build_queue(
             &state.names,
             &state.labels,
@@ -736,6 +748,14 @@ fn verdicts(sets: &[PathBuf], subject: &str) -> Vec<String> {
         .map(|s| s.name)
         .take(VERDICTS_OFFERED)
         .collect()
+}
+
+/// how many crops are embedded and still without an answer.
+fn undecided(names: &[String], labels: &Labels, cache: &Vectors) -> usize {
+    names
+        .iter()
+        .filter(|n| cache.get(n).is_some() && !labels.entries.contains_key(*n))
+        .count()
 }
 
 /// what to put on screen: the random sample, then temporal neighbours of known
